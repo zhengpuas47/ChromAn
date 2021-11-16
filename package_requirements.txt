@@ -1,2 +1,7 @@
 numpy >= 1.19
 scipy >= 1.5
+h5py >= 2.10
+matplotlib >= 3.3
+scikit-image >= 0.17
+scikit-learn-intelex >= 0.24
+conda-build >= 3.21.4
