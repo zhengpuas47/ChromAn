@@ -1,0 +1,8 @@
+{% set version = "0.1a0" %}
+
+package:
+  name: chroman
+  version: {{ version }}
+
+
+#https://docs.conda.io/projects/conda-build/en/latest/resources/define-metadata.html

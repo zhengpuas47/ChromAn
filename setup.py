@@ -1,6 +1,6 @@
 import os
 from setuptools import setup
-
+#import distutils.command.bdist_conda
 
 install_requires = [line.rstrip() for line in open(
     os.path.join(os.path.dirname(__file__), "package_requirements.txt"))]
@@ -13,8 +13,9 @@ setup(
     author_email="zhengpuas47@gmail.com",
     url='https://github.com/zhengpuas47/ChromAn',
     license="GPL 3.0",
-    packages=['ChromAn'],
+    packages=['chrom_models'],
     package_dir = {'': 'src'},
+    #distclass=distutils.command.bdist_conda.CondaDistribution,
     install_requires=install_requires, 
     classifiers=[
         "Programming Language :: Python :: 3.8",
