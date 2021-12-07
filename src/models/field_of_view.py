@@ -2449,3 +2449,14 @@ class Field_of_View():
 
 
 # add test comment
+
+def find_bit_folder(bit_id, data_type, color_dict, allowed_type_dict):
+    _feature_ref = f"{allowed_type_dict[data_type]}{bit_id}"
+    print(_feature_ref)
+    for _fd, _infos in color_dict.items():
+        for _info in _infos:
+            if _info == _feature_ref:
+                return _fd
+    
+    # return empty if not found
+    return ""
