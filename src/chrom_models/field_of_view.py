@@ -381,7 +381,7 @@ class Field_of_View():
                                     self.channels, 
                                     self.shared_parameters['allowed_data_types'],
                                    )
-        print(_type_dic.keys())
+        #print(_type_dic.keys())
         # create
         for _type, _dict in _type_dic.items():
             print(f'save type: {_type}"')
