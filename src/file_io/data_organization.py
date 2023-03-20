@@ -5,6 +5,18 @@ import re
 _data_folder_reg = r'^H([0-9]+)[RQBUGCMP]([0-9]+)(.*)'
 _data_fov_reg = r'(.+)_([0-9]+)\.dax'
 
+def create_folder(_fd, verbose=True):
+    """Formal create folder, resuable"""
+    if os.path.exists(_fd) and not os.path.isdir(_fd):
+        raise FileExistsError(f"target: {_fd} already exist and not a directory!")
+    elif not os.path.exists(_fd):
+        print(f"Creating folder: {_fd}")
+        os.makedirs(_fd)
+    else:
+        print(f"Folder: {_fd} already exists")
+    return
+
+
 def search_fovs_in_folders(
     master_folder, 
     folder_reg=_data_folder_reg,
