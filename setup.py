@@ -7,8 +7,8 @@ install_requires = [line.rstrip() for line in open(
 
 setup(
     name='ChromAn',
-    version='0.1a0',
-    description="Chromatin imaging analysis software",
+    version='0.1',
+    description="Chromatin and MERFISH imaging analysis software",
     author="Pu Zheng",
     author_email="zhengpuas47@gmail.com",
     url='https://github.com/zhengpuas47/ChromAn',
@@ -18,7 +18,7 @@ setup(
     #distclass=distutils.command.bdist_conda.CondaDistribution,
     install_requires=install_requires, 
     classifiers=[
-        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.10",
         "Topic :: Scientific/Engineering :: Bio-Informatics",
     ],
 )
