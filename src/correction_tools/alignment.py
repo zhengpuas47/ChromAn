@@ -109,9 +109,9 @@ def align_image(
     ):
     """Function to align one image by either FFT or spot_finding"""
     
-    from ..io_tools.load import correct_fov_image
-    from ..spot_tools.fitting import fit_fov_image
-    from ..spot_tools.fitting import select_sparse_centers
+    #from ..io_tools.load import correct_fov_image
+    #from ..spot_tools.fitting import fit_fov_image
+    #from ..spot_tools.fitting import select_sparse_centers
     from skimage.registration import phase_cross_correlation
     #print("**", type(src_im), type(ref_im))
     ## check inputs
@@ -153,11 +153,10 @@ def align_image(
             print(f"-- start aligning file {src_im}.", end=' ')
         if not os.path.isfile(src_im) or src_im.split('.')[-1] != 'dax':
             raise IOError(f"input src_im: {src_im} should be a .dax file!")
-        _src_im = correct_fov_image(src_im, [_drift_channel], 
-                                    all_channels=_all_channels,
-                                    calculate_drift=False, 
-                                    return_drift=False, verbose=detailed_verbose,
-                                    **_correction_args)[0]
+        _src_im = load_image_base(
+            src_im, [_drift_channel], 
+            verbose=detailed_verbose,
+            )[0][0]
     else:
         raise IOError(f"Wrong input file type, {type(src_im)} should be .dax file or np.ndarray")
     
@@ -171,11 +170,10 @@ def align_image(
             print(f"reference file:{ref_im}.")
         if not os.path.isfile(ref_im) or ref_im.split('.')[-1] != 'dax':
             raise IOError(f"input ref_im: {ref_im} should be a .dax file!")
-        _ref_im = correct_fov_image(ref_im, [_drift_channel], 
-                                    all_channels=_ref_all_channels,
-                                    calculate_drift=False, 
-                                    return_drift=False, verbose=detailed_verbose,
-                                    **_correction_args)[0][0]
+        _ref_im = load_image_base(
+            ref_im, [_drift_channel], 
+            verbose=detailed_verbose,
+            )[0][0]
     else:
         raise IOError(f"Wrong input ref file type, {type(ref_im)} should be .dax file or np.ndarray")
 
