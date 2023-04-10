@@ -1,6 +1,18 @@
-import numpy as np 
-import os, sys
-import re
+import os, sys, re
+import pandas as pd
+import numpy as np
+
+color_usage_kwds = {
+    'combo': 'c', 
+    'decoded':'d',
+    'unique': 'u', 
+    'relabeled_combo':'l',
+    'relabeled_unique':'v',
+    'merfish': 'm', 
+    'rna': 'r',
+    'gene':'g',
+    'protein':'p',
+    }
 
 _data_folder_reg = r'^H([0-9]+)[RQBUGCMP]([0-9]+)(.*)'
 _data_fov_reg = r'(.+)_([0-9]+)\.dax'
@@ -42,3 +54,42 @@ def search_fovs_in_folders(
         print(f"-- {len(_folders)} folders, {len(_fovs)} fovs detected.")
     return _folders, _fovs
 
+
+class Color_Usage(pd.DataFrame):
+    
+    def __init__(self, filename, verbose=True, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.filename = filename
+        self.verbose = verbose
+        self.read_from_file()
+        
+    def read_from_file(self):
+        """Load color_usage"""
+        # read data from file and update the DataFrame
+        if self.verbose:
+            print(f"- load color_usage from file: {self.filename}")
+        color_usage_df = pd.read_csv(self.filename, index_col=0)
+        self.__dict__.update(color_usage_df.__dict__)
+    
+    ### TODO: add query functions for color_usage
+    def custom_method(self):
+        # define custom method here
+        pass
+
+    @staticmethod
+    def get_channels(color_usage_df):
+        return list(color_usage_df.columns)
+    @staticmethod
+    def get_dapi_channel(color_usage_df, dapi_query='DAPI'):
+        for _c in color_usage_df.columns:
+             if dapi_query in color_usage_df[_c].fillna(-1).values:
+                 return _c
+        return None
+    @staticmethod
+    def get_fiducial_channel(color_usage_df, fiducial_query='beads'):
+        for _c in color_usage_df.columns:
+             if fiducial_query in color_usage_df[_c].fillna(-1).values:
+                 return _c
+        return None
+    
+        
