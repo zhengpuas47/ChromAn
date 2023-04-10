@@ -1,21 +1,79 @@
-import os, sys
+import os, sys, re, time, h5py, warnings
 import numpy as np 
-import re
 import xml.etree.ElementTree as ET
-import time
-import h5py
+# default params
+from ..default_parameters import *
+# usful functions
+from ..correction_tools.load import load_correction_profile
 
-default_im_size=np.array([50,2048,2048])
-default_pixel_sizes=np.array([250,108,108])
-default_channels = ['750','647','561','488','405']
-default_ref_channel = '647'
-default_dapi_channel = '405'
-default_num_buffer_frames = 0
-default_num_empty_frames = 0
-default_seed_th = 1000
-from ..io_tools.load import split_im_by_channels,load_correction_profile
-from ..correction_tools.filter import gaussian_high_pass_filter
-from ..correction_tools.alignment import align_image
+class Reader(object):
+    """
+    The superclass containing those functions that 
+    are common to reading a STORM movie file.
+
+    Subclasses should implement:
+     1. __init__(self, filename, verbose = False)
+        This function should open the file and extract the
+        various key bits of meta-data such as the size in XY
+        and the length of the movie.
+
+     2. loadAFrame(self, frame_number)
+        Load the requested frame and return it as numpy array.
+    """
+    def __init__(self, filename, verbose = False):
+        super(Reader, self).__init__()
+        self.filename = filename
+        self.fileptr = None
+        self.verbose = verbose
+
+    def __del__(self):
+        self.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, etype, value, traceback):
+        self.close()
+
+    def averageFrames(self, start = False, end = False):
+        """
+        Average multiple frames in a movie.
+        """
+        if (not start):
+            start = 0
+        if (not end):
+            end = self.number_frames 
+
+        length = end - start
+        average = np.zeros((self.image_height, self.image_width), np.float32)
+        for i in range(length):
+            if self.verbose and ((i%10)==0):
+                print(" processing frame:", i, " of", self.number_frames)
+            average += self.loadAFrame(i + start)
+            
+        average = average/float(length)
+        return average
+
+    def close(self):
+        if self.fileptr is not None:
+            self.fileptr.close()
+            self.fileptr = None
+        
+    def filmFilename(self):
+        """
+        Returns the film name.
+        """
+        return self.filename
+
+    def filmSize(self):
+        """
+        Returns the film size.
+        """
+        return [self.image_width, self.image_height, self.number_frames]
+
+    def loadAFrame(self, frame_number):
+        assert frame_number >= 0, "Frame_number must be greater than or equal to 0, it is " + str(frame_number)
+        assert frame_number < self.number_frames, "Frame number must be less than " + str(self.number_frames)
 
 class DaxReader(Reader):
     # dax specific initialization
@@ -133,6 +191,55 @@ class DaxReader(Reader):
             print(f"file {self.filename} has been closed.")
         else:
             self.fileptr.close()
+
+def load_image_base(
+    filename,
+    sel_channels=None,
+    ImSize=None, 
+    NbufferFrame=default_num_buffer_frames,
+    NemptyFrame=default_num_empty_frames,
+    verbose=False,
+):
+    """Function to simply load imaage, referenced as base"""
+
+    _load_start = time.time()
+    # get all channels
+    _channels = DaxProcesser._FindDaxChannels(filename, verbose=verbose)
+    # get selected channels
+    if sel_channels is None:
+        _sel_channels = _channels
+    elif isinstance(sel_channels, list):
+        _sel_channels = [str(_ch) for _ch in sel_channels]
+    elif isinstance(sel_channels, str) or isinstance(sel_channels, int):
+        _sel_channels = [str(sel_channels)]
+    else:
+        raise ValueError(f"Invalid input for sel_channels")
+    # choose loading 
+    for _ch in sorted(_sel_channels, key=lambda v: _channels.index(v)):
+        if _ch not in _channels:
+            raise ValueError(f"channel:{_ch} doesn't exist.")
+    # get image size
+    if ImSize is None:
+        _image_size = DaxProcesser._FindImageSize(filename,
+            channels=_channels,
+            NbufferFrame=NbufferFrame,
+            verbose=verbose,
+            )
+    else:
+        _image_size = np.array(ImSize, dtype=np.int32)
+    # Load dax file
+    _reader = DaxReader(filename, verbose=verbose)
+    _raw_im = _reader.loadAll()
+    # split by channel
+    _ims = split_im_by_channels(
+        _raw_im, _sel_channels,
+        all_channels=_channels, single_im_size=_image_size,
+        num_buffer_frames=NbufferFrame, num_empty_frames=NemptyFrame,
+    )
+    if verbose:
+        print(f"- Loaded images for channels:{_sel_channels} in {time.time()-_load_start:.3f}s.")
+    # save attributes
+    return _ims, _sel_channels
 
 class DaxProcesser():
     """Major image processing class for 3D image in DNA-MERFISH,
@@ -616,8 +723,9 @@ class DaxProcesser():
             pass
         else:
             raise ValueError(f"Wrong input of RefImage, should be either a matched sized image, or a filename")
-        # align_image
+        # align image
         if precise_align:
+            from ..correction_tools.alignment import align_image
             _drift, _drift_flag = align_image(
                 _DriftImage,
                 RefImage, 
@@ -772,6 +880,7 @@ class DaxProcesser():
                         overwrite=False,
                         ):
         """Function to apply gaussian highpass for selected channels"""
+        from ..correction_tools.filter import gaussian_high_pass_filter
         _total_highpass_start = time.time()
         if correction_channels is None:
             correction_channels = self.loaded_channels
@@ -1111,3 +1220,35 @@ class DaxWriter(Writer):
             inf_fp.write("y_start = 1\n")
             inf_fp.write("y_end = " + str(self.h) + "\n")
         inf_fp.close()
+
+# split multi-channel images from DNA-FISH
+def split_im_by_channels(im, sel_channels, all_channels, 
+                         single_im_size=default_im_size,
+                         num_buffer_frames=default_num_buffer_frames, 
+                         num_empty_frames=default_num_empty_frames, 
+                         skip_frame0=False):
+    """Function to split a full image by channels"""
+    _num_colors = len(all_channels)
+    if isinstance(sel_channels, str) or isinstance(sel_channels, int):
+        sel_channels = [sel_channels]
+    _sel_channels = [str(_ch) for _ch in sel_channels]
+    if isinstance(all_channels, str) or isinstance(all_channels, int):
+        all_channels = [all_channels]
+    _all_channels = [str(_ch) for _ch in all_channels]
+    for _ch in _sel_channels:
+        if _ch not in _all_channels:
+            raise ValueError(f"Wrong input channel:{_ch}, should be within {_all_channels}")
+    _ch_inds = [_all_channels.index(_ch) for _ch in _sel_channels]
+    _ch_starts = [num_empty_frames + num_buffer_frames \
+                    + (_i - num_empty_frames - num_buffer_frames) %_num_colors 
+                    for _i in _ch_inds]
+    #print('_ch_inds', _ch_inds)
+    #print('_ch_starts', _ch_starts)
+    if skip_frame0:
+        for _i,_s in enumerate(_ch_starts):
+            if _s == _num_buffer_frames:
+                _ch_starts[_i] += _num_colors
+
+    _splitted_ims = [im[_s:_s+single_im_size[0]*_num_colors:_num_colors].copy() for _s in _ch_starts]
+
+    return _splitted_ims
