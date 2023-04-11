@@ -1,27 +1,20 @@
-import sys
-import glob
-import os
-import time
-import copy
+
+import os, time, h5py, ast
 import numpy as np
 import pickle as pickle
 import multiprocessing as mp
 # fix mp reducer 4GB limit
-from ..required_files import pickle2reducer
+from ..parallel_tools.mp_passing import pickle4reducer
 ctx = mp.get_context()
-ctx.reducer = pickle2reducer.Pickle2Reducer()
-# saving
-import h5py
-import ast
+ctx.reducer = pickle4reducer.Pickle4Reducer()
 # plotting
-import matplotlib
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 
 # import other sub-packages
 # import package parameters
-from .. import _correction_folder, _corr_channels, _temp_folder,_distance_zxy,\
+from .. import _correction_folder, _corr_channels,_distance_zxy,\
     _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames, _image_dtype
-from . import _allowed_kwds, _max_num_seeds, _min_num_seeds, _spot_seeding_th
+from . import color_usage_kwds, _max_num_seeds, _min_num_seeds, _spot_seeding_th
 
 def __init__():
     print(f"Loading field of view class")
@@ -94,10 +87,11 @@ class Field_of_View():
         ## extract hybe folders and field-of-view names
         self.folders = []
         for _fd in self.data_folder:
-            from ..get_img_info import get_folders
-            _hyb_fds, _fovs = get_folders(_fd, feature='H', verbose=True)
-            self.folders += _hyb_fds # here only extract folders not fovs
-
+            from ..file_io.data_organization import search_fovs_in_folders
+            _hyb_fds, _fovs = search_fovs_in_folders(_fd, verbose=self.verbose)
+            # here only extract folders, assuming fovs don't change
+            self.folders += _hyb_fds 
+        # check fov name
         if _fov_name is None and _fov_id is None:
             raise ValueError(f"either _fov_name or _fov_id should be given!")
         elif _fov_id is not None:
@@ -227,7 +221,7 @@ class Field_of_View():
         if 'corr_gaussian_highpass' not in self.shared_parameters:
             self.shared_parameters['corr_gaussian_highpass'] = False
         if 'allowed_kwds' not in self.shared_parameters:
-            self.shared_parameters['allowed_data_types'] = _allowed_kwds
+            self.shared_parameters['allowed_data_types'] = color_usage_kwds
         # params for drift
         if 'max_num_seeds' not in self.shared_parameters:
             self.shared_parameters['max_num_seeds'] = _max_num_seeds
@@ -312,31 +306,27 @@ class Field_of_View():
 
     ## Load basic info
     def _load_color_info(self, _color_filename=None, _color_format=None, 
-                         _save_color_dic=True, _annotate_folders=False):
+                         _save_color_usage_df=True, _annotate_folders=False):
         """Function to load color usage representing experimental info"""
         ## check inputs
         if _color_filename is None:
             _color_filename = self.color_filename
         if _color_format is None:
             _color_format = self.color_format
-        from ..get_img_info import Load_Color_Usage, find_bead_channel, find_dapi_channel
-        _color_dic, _use_dapi, _channels = Load_Color_Usage(self.analysis_folder,
-                                                            color_filename=_color_filename,
-                                                            color_format=_color_format,
-                                                            return_color=True)
-        
-        # need-based store color_dic
-        if _save_color_dic:
-            self.color_dic = _color_dic
+        from ..file_io.data_organization import Color_Usage
+        color_usage_filename = os.path.join(self.analysis_folder, f"{_color_filename}{os.extsep}{_color_format}")
+        _color_usage_df = Color_Usage(color_usage_filename, verbose=self.verbose)
+        # need-based store color_usage_df
+        if _save_color_usage_df:
+            self.color_usage_df = _color_usage_df
         # store other info
-        self.use_dapi = _use_dapi
-        self.channels = [str(ch) for ch in _channels]
+        self.channels = [str(ch) for ch in Color_Usage.get_channels(_color_usage_df)]
         # channel for beads
-        _drift_channel = find_bead_channel(_color_dic)
-        self.drift_channel = self.channels[_drift_channel]
-        _dapi_channel = find_dapi_channel(_color_dic)
-        self.dapi_channel = self.channels[_dapi_channel]
-        self.dapi_channel_index = _dapi_channel
+        self.fiducial_channel = Color_Usage.get_fiducial_channel(_color_usage_df)
+        self.fiducial_channel_index = Color_Usage.get_fiducial_channel_index(_color_usage_df)
+        self.dapi_channel = Color_Usage.get_dapi_channel(_color_usage_df)
+        self.dapi_channel_index = Color_Usage.get_dapi_channel_index(_color_usage_df)
+        self.use_dapi = (self.dapi_channel is not None)
 
         # get annotated folders by color usage
         if _annotate_folders:
@@ -347,7 +337,7 @@ class Field_of_View():
                     self.annotated_folders.append(_matches[0])
             print(f"- {len(self.annotated_folders)} folders are found according to color-usage annotation.")
 
-        return _color_dic
+        return _color_usage_df
     
     ### Here are some initialization functions
     def _init_save_file(self, _save_filename=None, 
@@ -401,7 +391,7 @@ class Field_of_View():
                                   _overwrite=False, 
                                   _verbose=True):
         """Function to load correction profiles in RAM"""
-        from ..io_tools.load import load_correction_profile
+        from ..correction_tools.load_corrections import load_correction_profile
         # determine correction folder
         if _correction_folder is None:
             _correction_folder = self.correction_folder
@@ -518,9 +508,9 @@ class Field_of_View():
             if 'illumination' in self.correction_profiles and self.correction_profiles['illumination'] is not None and len(self.correction_profiles['illumination']) > 0 and not _overwrite:
                 print(f"++ illumination correction profile already exist, skip.")
             else:
-                #drift_channel = str(self.drift_channel)
+                #fiducial_channel = str(self.fiducial_channel)
                 #dapi_channel = str(self.dapi_channel)
-                #self.shared_parameters['corr_channels']+[drift_channel, dapi_channel]
+                #self.shared_parameters['corr_channels']+[fiducial_channel, dapi_channel]
                 # all channel needs illumination correction
                 _illumination_channels = self.channels
                 ## illumination profiles
@@ -744,13 +734,13 @@ class Field_of_View():
         else:
             # load
             _ref_im = correct_fov_image(_ref_filename, 
-                                        [self.drift_channel], 
+                                        [self.fiducial_channel], 
                                         single_im_size=self.shared_parameters['single_im_size'],
                                         all_channels=_used_channels,
                                         num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                         num_empty_frames=self.shared_parameters['num_empty_frames'],
                                         drift=None, calculate_drift=False,
-                                        drift_channel=self.drift_channel,
+                                        drift_channel=self.fiducial_channel,
                                         correction_folder=self.correction_folder,
                                         warp_image=False,
                                         illumination_corr=True,
@@ -963,7 +953,7 @@ class Field_of_View():
                 'chromatic_profile':self.correction_profiles['chromatic_constants'],})
         # required parameters for drift correction
         _drift_args.update({
-            'drift_channel': self.drift_channel,
+            'drift_channel': self.fiducial_channel,
             'use_autocorr': self.shared_parameters['drift_use_autocorr'],
             'drift_args': self.shared_parameters['drift_args'],
         })
@@ -1747,7 +1737,7 @@ class Field_of_View():
                                     num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                     num_empty_frames=self.shared_parameters['num_empty_frames'],
                                     drift=None, calculate_drift=_use_ref_im, 
-                                    drift_channel=self.drift_channel,
+                                    drift_channel=self.fiducial_channel,
                                     ref_filename=_drift_ref,
                                     correction_folder=self.correction_folder,
                                     corr_channels=self.shared_parameters['corr_channels'],
@@ -1774,526 +1764,6 @@ class Field_of_View():
                     _verbose=_verbose)
         
         return _chrom_im
-
-    def _generate_chrom_im_from_data(self, _data_type, _num_loaded_image=10, 
-                           _fast=True, _save=False,
-                           _overwrite=False, _verbose=True):
-        """Function to create chromosome image by stacking over all images from certain data_type
-        _data_type: type of images to be used to generate chromosome image
-        _num_loaded_image: image loaded per round, int
-        _fast: whether do it in fast 
-        """    
-        from .batch_functions import load_image_from_fov_file
-        from ..io_tools.load import find_image_background
-        ## check inputs
-        if _data_type not in self.shared_parameters['allowed_data_types']:
-            raise ValueError(f"Wrong input data_type: {_data_type}, should be among:{self.shared_parameters['allowed_data_types']}")
-        _num_loaded_image = int(_num_loaded_image)
-        
-        if hasattr(self, 'chrom_im') and not _overwrite:
-            if _verbose:
-                print(f"- Directly load chrom_im from fov class.")
-            _chrom_im = getattr(self, 'chrom_im')
-        else:
-            # load all IDs
-            with h5py.File(self.save_filename, "a", libver='latest') as _f:
-                # get the group
-                _grp = _f[_data_type]
-
-                _flags = _grp['flags'][:]
-                _valid_ids = _grp['ids'][_flags > 0] # only load from processed ids
-                _valid_flags = _flags[_flags > 0]
-            if _verbose:
-                print(f"- Generate chromosome image from {_data_type} images, {len(_valid_ids)} images planned to load.")
-                _chrom_time = time.time()
-            # start to load images
-            _chrom_im = np.zeros(self.shared_parameters['single_im_size'])
-            # load images in batch to avoid memory limitations
-            for _batch_id in range(int(np.ceil(len(_valid_ids)/_num_loaded_image))):
-                # load these iamges in this bat
-                _load_ids = _valid_ids[_batch_id*_num_loaded_image:(_batch_id+1)*_num_loaded_image]
-                _load_flags = _valid_flags[_batch_id*_num_loaded_image:(_batch_id+1)*_num_loaded_image]
-                # load
-                _ims, _flags, _drifts = load_image_from_fov_file(self.save_filename, _data_type, _load_ids,
-                                                            image_dtype=self.image_dtype, 
-                                                            load_drift=True, verbose=_verbose)
-                # get only pixel level drift for computational efficiency
-                #_shifted_ims = []
-                if _verbose:
-                    print(f"-- shifting images", end=' ')
-                    _shift_time = time.time()
-                
-                if _fast:
-                    _rough_drifts = np.round(_drifts).astype(np.int)
-                    for _i, (_im, _flag, _drift) in enumerate(zip(_ims, _flags, _rough_drifts)):
-                        # if warpped, directly add
-                        if _flag == 2:
-                            _chrom_im += _im
-                        else:
-                            # left limits
-                            _llim = np.max([_drift, np.zeros(len(_drift), dtype=np.int)], axis=0)
-                            _shift_llim = np.max([-_drift, np.zeros(len(_drift), dtype=np.int)], axis=0)
-                            # corresponding right limits
-                            _rlim = np.array(np.shape(_im)) - _shift_llim
-                            _shift_rlim = _shift_llim + (_rlim - _llim)
-                            # generate crops
-                            _crops = tuple([slice(_l,_r) for _l,_r in zip(_llim, _rlim)])
-                            _shift_crops = tuple([slice(_l,_r) for _l,_r in zip(_shift_llim, _shift_rlim)])
-                            #_shift_im = np.ones(np.shape(_chrom_im)) * find_image_background(_im)
-                            # crop image and add to shift_im
-                            #_shift_im[_shift_crops] = _im[_crops]
-                            # append
-                            _background = np.median(_im)
-                            _chrom_im += _background
-                            _chrom_im[_shift_crops] += _im[_crops]-_background
-                            #_shifted_ims.append(_shift_im)
-                else:
-                    from scipy.ndimage.interpolation import shift
-                    for _i, (_im, _flag, _drift) in enumerate(zip(_ims, _flags, _drifts)):
-                        # if warpped, directly add
-                        if _flag == 2: # this image has been warpped
-                            _shift_im = _im
-                        else:
-                            _shift_im = shift(_im, -_drift, order=1, mode='constant', cval=find_image_background(_im))
-                        _chrom_im += _shift_im
-                        #_shifted_ims.append(_shift_im)
-                        
-                if _verbose:
-                    print(f"in {time.time()-_shift_time:.3f}s. ")
-
-            # add attribute
-            setattr(self, 'chrom_im', _chrom_im)
-
-            if _verbose:
-                print(f"-- finish generating chrom_im in {time.time()-_chrom_time:.3f}s. ")
-            
-            if _save:
-                self._save_to_file('fov_info', _save_attr_list=['chrom_im'],
-                                _verbose=_verbose)
-            
-        return _chrom_im #, _shifted_ims
-    
-
-    
-
-
-    # alternative batch method to find candidate chromosome @ Shiwei Liu
-    # including main features as below:
-    # 1. dna/dapi rough mask is used to filtering out the non-cell/non-nucleus region when calculating the intensity distribution of chr signal;
-    # 2. initial chr labels are seperated by their voxel size, which are subjected to subsequent binary operations using different parameters.
-    # 3. the specified chr/gene id is returned as the dict.key in the output (chrom_coords) in addition to the zyx, which would be used for simutaneous spots assigment to multiple genes.
-
-
-    # Some notes for adjusting the parameters:
-    # Test _chr_seed_size first so majority of single chromosome foci were correctly labeled;
-    # Next, increase or decrease _percent_th_3chr and _percent_th_2chr if too much over-splitting or merging of chr seeds
-    # If oversplitting happens (especially on relatively condensed small foci) while merging is also frequent, try increase the _min_label_size. 
-    # Increase of _min_label_size decrease overspliting though it may lead to some detection loss for small chromosome seeds.
-
-    def _find_all_candidate_chromosomes_in_nucleus (self, 
-                                                #_chrom_ims=None, 
-                                                _dna_im=None, 
-                                                _dna_mask=None,
-                                                _chr_ids = [], 
-                                                _chr_seed_size = 200,
-                                                _percent_th_3chr = 97.5,
-                                                _percent_th_2chr = 85, 
-                                                _use_percent_chr_area = False,
-                                                _fold_3chr = 7,
-                                                _fold_2chr = 5,
-                                                _std_ratio = 3,
-                                                _morphology_size=1, 
-                                                _min_label_size=30, 
-                                                _random_walk_beta=15, 
-                                                _num_threads=4,
-                                                _save=True,
-                                                _overwrite=False, 
-                                                _verbose=True):
-        '''Function to find all candidate chromosome centers for input genes given
-        Inputs:
-            # {(not defined as input anymore; defined by _chr_ids below) _chrom_ims: images where chromosomes are lighted for different genes [num_of_genes * (z,y,x)],
-               it could be directly from experimental result, or assembled by stacking over images,
-               np.ndarray(shape equal to single_im_size)_}
-            _dna_im: DNA/nuclei/cell image that are used for filtering out the non-cell/non-nucleus region
-            _dna_mask: if use DNA/cell mask provided from elsewhere, define such mask here
-            _chr_id: the id number for the chr (gene) selected; default is empty, which will load all chr saved in gene_ids
-            _chr_seed_size: the rough min seed size for the initial seed
-            _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by more than one chr
-            _percent_th_3chr: the percentile th (for voxel size) as indicated for grouping large chr seeds that are likely formed by two chr
-            _use_percent_chr_area: use percentile or the fold number to estimate large multi-chr foci
-            _fold_3chr: the fold of median (single) chr size to be considered as large multi-chr seed
-            _fold_2chr: the fold of median (single) chr size to be considered as large dual-chr seed
-            _std_ratio: the number of std to be used to find the lighted chromosome
-            _morphology_size: the size for erosion/dilation for single chr candidate; 
-               this size is adjusted further for erosion/dilation for larger chr seeds that are likely formed by multiple chr candidate
-            _min_label_size: size for removal of small objects after binary operations; note that this is typically smaller than what is used in the [find_candidate_chromosomes] function below
-            _random_walk_beta: the higher the beta, the more difficult the diffusion is.
-            _verbose: say something!, bool (default: True)
-        Output:
-            cand_chrom_coords_all: dict of arrays of chrom coordinates in zxy pixels + the chr label area used for segmentation for all selected genes (as dict.key))'''
-
-        from skimage import morphology
-        #from scipy.stats import scoreatpercentile
-        from scipy import ndimage
-        from skimage import measure
-        from skimage import filters
-        if hasattr(self, 'chrom_coords') and not _overwrite:
-            if _verbose:
-                print(f"+ directly use current chromsome coordinates alternative.")
-                return getattr(self, 'chrom_coords')
-        elif not _overwrite:
-            self._load_from_file('signal', _load_attr_list=['chrom_coords'],
-                                _overwrite=_overwrite, _verbose=_verbose, )
-            if hasattr(self, 'chrom_coords'):
-                if _verbose:
-                    print(f"+ use chromsome coordinates alternative from savefile: {os.path.basename(self.save_filename)}.")
-                return getattr(self, 'chrom_coords')
-
-        ## 1. assign and load _dna_image if not specified
-        if _dna_im is None:
-            if hasattr(self, 'dapi_im') and not _overwrite:
-                if _verbose:
-                    print(f"+ directly use current dapi image.")
-                    _dna_im = getattr(self, 'dapi_im')
-            else:
-                _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=True, _save=_save)
-
-        ## 2. process each spot images from saved HDF file for all hybs or selected hybs if not specified
-        if isinstance (_chr_ids, list) or isinstance (_chr_ids, np.ndarray):
-            if _chr_ids == []:
-                if hasattr(self, 'gene_ids') and not _overwrite:
-                    _chr_ids  = getattr(self, 'gene_ids')
-                else:
-                    self._load_from_file('gene')
-                    _chr_ids  = getattr(self, 'gene_ids')
-
-        # _chr_intensity_th dict to store all coordinates
-        _chrom_coords_all = {}
-
-        # load spot_im for one hyb at a time to save memory
-        for _chr_id in _chr_ids:
-            if _verbose:
-                print (f'+ start analyzing the chr/gene {_chr_id}')
-            with h5py.File(self.save_filename, "r", libver='latest') as _f:
-                _grp = _f['gene']
-                _chrom_im = _grp ['ims'][_chr_id-1]
-                #_gene_id = _grp ['ids'][_chr_id-1]
-
-                from ..segmentation_tools.chromosome import find_candidate_chromosomes_in_nucleus
-                _chrom_coords = find_candidate_chromosomes_in_nucleus (
-                _chrom_im, _dna_im = _dna_im, _dna_mask=_dna_mask, _chr_seed_size = _chr_seed_size, _percent_th_3chr =_percent_th_3chr, _percent_th_2chr=_percent_th_2chr, 
-                _use_percent_chr_area= _use_percent_chr_area, _fold_3chr=_fold_3chr, _fold_2chr = _fold_2chr, _std_ratio=_std_ratio,_morphology_size=_morphology_size,
-                _min_label_size=_min_label_size, _random_walk_beta=_random_walk_beta,_num_threads=_num_threads,_verbose=_verbose)
-                _chrom_coords_all [str(_chr_id)] = _chrom_coords
-
-        ## 3. set attributes
-        setattr(self, 'chrom_coords', _chrom_coords_all)
-        if _save:
-            self._save_to_file('signal', _save_attr_list=['chrom_coords'],
-                                _overwrite=_overwrite,
-                                _verbose=_verbose)
-        
-        return _chrom_coords_all
-
-
-
-    ### Short function to quickly convert the chrom_coord_dict above to a single array
-    def _convert_all_chrom_coords_dict_to_array (self, chrom_coords_dict = None, _verbose = True):
-    
-        '''Function to conver chrom_coords_dict (with arrays) to one single array
-
-            Output: for each chrom center, zxy are the first 3 elements 
-              with the 4th element as the chr label
-               and the 5th element as the gene id '''
-        
-        if hasattr(self, 'chrom_coords'):
-            if _verbose:
-                print(f"+ load and combine current chromsome coordinates alternative.")
-            chrom_coords_dict = getattr(self, 'chrom_coords')
-
-        elif not hasattr(self, 'chrom_coords') and isinstance (chrom_coords_dict, dict):
-            if _verbose:
-                print(f"+ use provided chromsome coordinates alternative.")
-        
-        else:
-            if _verbose:
-                print(f"+ no valid chromsome coordinates alternative. generate chrom coords first.")
-            return None
-
-        _all_chrom_coords = []
-        for _chr_key, _chr_coord in chrom_coords_dict.items():
-           # new column for gene id
-            _chr_key_col = np.ones((len(_chr_coord),1)) * int(_chr_key)
-            _new_chr_coord = np.hstack((_chr_coord,_chr_key_col))
-        # append each chr 
-            for _chr in _new_chr_coord:
-                _all_chrom_coords.append(_chr)
-
-        _all_chrom_coords = np.array(_all_chrom_coords )  
-    
-        return _all_chrom_coords
-
-
-    def _find_candidate_chromosomes_by_segmentation(self, 
-                                                _chrom_im=None, 
-                                                _adjust_layers=False, 
-                                                _filt_size=4, 
-                                                _binary_per_th=99.5,
-                                                _morphology_size=1, 
-                                                _min_label_size=50,
-                                                _random_walk_beta=10,
-                                                _save=True,
-                                                _overwrite=False,
-                                                _verbose=True):
-        """Function to find candidate chromsome centers given
-        Inputs:
-            _chrom_im: image that chromosomes are lighted, 
-                it could be directly from experimental result, or assembled by stacking over images,
-                np.ndarray(shape equal to single_im_size)
-            _adjust_layers: whether adjust intensity for layers, bool (default: False)
-            _filt_size: filter size for maximum and minimum filters used to find local maximum, int (default: 3)
-            _binary_per_th: percentile threshold to binarilize the image to get peaks, float (default: 99.5)
-            _morphology_size=1, 
-            _min_label_size=100,
-            _random_walk_beta=10,
-            _verbose: say something!, bool (default: True)
-        Output:
-            _cand_chrom_coords: list of chrom coordinates in zxy pixels"""
-        from scipy.ndimage.filters import maximum_filter, minimum_filter
-        from skimage import morphology
-        from scipy.stats import scoreatpercentile
-        from scipy import ndimage
-        if hasattr(self, 'cand_chrom_coords') and not _overwrite:
-            if _verbose:
-                print(f"+ directly use current chromsome coordinates.")
-            return getattr(self, 'cand_chrom_coords')
-        elif not _overwrite:
-            self._load_from_file('fov_info', _load_attr_list=['cand_chrom_coords'],
-                                _overwrite=_overwrite, _verbose=_verbose, )
-            if hasattr(self, 'cand_chrom_coords'):
-                if _verbose:
-                    print(f"+ use chromsome coordinates from savefile: {os.path.basename(self.save_filename)}.")
-                return getattr(self, 'cand_chrom_coords')
-        
-        ## 0. load or generate chromosome
-        if _chrom_im is None:
-            if hasattr(self, 'chrom_im'):
-                _chrom_im = getattr(self, 'chrom_im')
-            else:
-                _chrom_im = self._load_chromosome_image(_verbose=_verbose)
-        from ..segmentation_tools.chromosome import find_candidate_chromosomes
-        _chrom_coords = find_candidate_chromosomes(
-            _chrom_im,
-            _adjust_layers=_adjust_layers, 
-            _filt_size=_filt_size, 
-            _binary_per_th=_binary_per_th,
-            _morphology_size=_morphology_size, 
-            _min_label_size=_min_label_size,
-            _random_walk_beta=_random_walk_beta,
-            _num_threads=self.num_threads,
-            _verbose=_verbose,
-        )
-        # set attributes
-        setattr(self, 'cand_chrom_coords', _chrom_coords)
-        if _save:
-            self._save_to_file('fov_info', _save_attr_list=['cand_chrom_coords'],
-                                _overwrite=_overwrite,
-                                _verbose=_verbose)
-        
-        return _chrom_coords
-
-
-
-
-    ### Class function to estimate the spot_th for picking candidate spots from fitted spots, whose intensity are background substracted @ Shiwei Liu
-    ### Use spot/region ids as prioritzied input to select image to process.
-
-    ### Note: if region ids starts from 0, the corresponding image would be 0-1 = -1, which is the last hyb image. 
-    def _find_itensity_th_for_selected_spots_in_nucleus(self, _region_ids = [], 
-                               _dna_im = None, 
-                               _dna_mask = None, 
-                               _std_ratio = 3, 
-                               _return_signal_and_background = False, 
-                               _verbose = True, 
-                               _parallel = False,  
-                               _num_threads=4, 
-                               _save=True, 
-                               _overwrite=False):
-
-        """Function to estimate spot intensity and spot background (excluding non-cell regions) given
-           Input:
-             _region_ids: the spot region ids used for selecting spot images, for example from each hyb
-             _dna_im: dna image or cell boundary image to exlcude non-nuclear/non-cell area
-             _dna_mask: if use provided dna mask [one z-slice]
-             _std_ratio: the number_of_std to be applied to find the spot th
-             _return_signal_and_background: if False, return the background substracted signal
-             _verbose: bool; say sth
-           Output:
-             spot_intensity_th_dict: background substracted spot th for spot picking for selected regions/spots"""
-
-
-        from skimage import morphology
-        #from scipy.stats import scoreatpercentile
-        #from scipy import ndimage
-        from skimage import filters
-        if hasattr(self, 'spot_intensity_th') and not _overwrite:
-            if _verbose:
-                print(f"+ directly use current spot intensity thresholds.")
-                return getattr(self, 'spot_intensity_th')
-        elif not _overwrite:
-            self._load_from_file('signal', _load_attr_list=['spot_intensity_th'],
-                                _overwrite=_overwrite, _verbose=_verbose, )
-            if hasattr(self, 'spot_intensity_th'):
-                if _verbose:
-                    print(f"+ use spot intensity thresholds from savefile: {os.path.basename(self.save_filename)}.")
-                return getattr(self, 'spot_intensity_th')
-
-        ## 1. assign and load _dna_image if not specified
-        if _dna_im is None:
-            if hasattr(self, 'dapi_im') and not _overwrite:
-                if _verbose:
-                    print(f"+ directly use current dapi image.")
-                    _dna_im = getattr(self, 'dapi_im')
-            else:
-                _dna_im = self._load_dapi_image(_dapi_id=0, _overwrite=True, _save=_save)
-
-        ## 2. process each spot images from saved HDF file for all hybs or selected hybs if not specified
-        if isinstance (_region_ids, list) or isinstance (_region_ids, np.ndarray):
-            if _region_ids == []:
-                if hasattr(self, 'combo_ids') and not _overwrite:
-                    _region_ids = getattr(self, 'combo_ids')
-                else:
-                    self._load_from_file('combo')
-                    _region_ids = getattr(self, 'combo_ids')
-        
-        # _spot_intensity_th dict to store all estimates
-        _spot_intensity_th = {}
-        
-        # determining if multiprocessing or single processing
-        if not self.parallel:  # prioritize shared parameter
-            _parallel = False
-        
-
-        if _parallel == False:  # slow but less memory usage
-                # load spot_im for one hyb at a time to save memory
-            for _region_id in _region_ids:
-                if _verbose:
-                    print(f"+ estimate intensity threshold for region {_region_id}.")
-                    if _region_id == 0:
-                        print ("note that the spot image with index of '-1' is loaded for region_id == 0")
-                with h5py.File(self.save_filename, "r", libver='latest') as _f:
-                    _grp = _f['combo']
-                    _spot_im = _grp ['ims'][_region_id-1]
-                    #_combo_id = _grp ['ids'][_region_id-1]
-
-                    from ..spot_tools.picking import find_spot_intensity_th_and_background_in_nucleus
-                    _spot_intensity_th_each = find_spot_intensity_th_and_background_in_nucleus (_spot_im = _spot_im, _dna_im = _dna_im, _dna_mask =_dna_mask, _std_ratio = _std_ratio, 
-                    _return_signal_and_background =_return_signal_and_background, _verbose = _verbose)
-
-                    _spot_intensity_th [str(_region_id)] = _spot_intensity_th_each
-        
-        ########## NOT FINISHED below ########## 
-        if _parallel == True:  # fast but more memory usage
-            if len(_region_ids) > 0:
-
-                import multiprocessing as mp
-                from ..spot_tools.picking import find_spot_intensity_th_and_background_in_nucleus
-
-                _spot_im_kwargs = [{'_spot_im_filename': self.save_filename,'_dna_im': _dna_im,'_spot_id': _region_id} for _region_id in _region_ids]
-
-                with mp.Pool(_num_threads,) as _spot_ims_pool:
-                    if _verbose:
-                        print(f"- Start multiprocessing estimates spot intensity th with {_num_threads} threads", end=' ')
-                        _multi_time = time.time()
-                    # Multi-proessing!
-                    _spot_intensity_th = _spot_ims_pool.starmap(find_spot_intensity_th_and_background_in_nucleus, _spot_im_kwargs, chunksize=1)
-                    # close multiprocessing
-                    _spot_ims_pool.close()
-                    _spot_ims_pool.join()
-                    _spot_ims_pool.terminate()
-                    if _verbose:
-                        print(f"in {time.time()-_multi_time:.3f}s.")
-        ##########  NOT FINSIHED above ##########      
-
-
-        ## 3. set attributes
-        setattr(self, 'spot_intensity_th', _spot_intensity_th)
-        if _save:
-            self._save_to_file('signal', _save_attr_list=['spot_intensity_th'],
-                                _overwrite=_overwrite,
-                                _verbose=_verbose)
-        
-        return _spot_intensity_th
-
-
-
-    def _select_chromosome_by_candidate_spots(self, 
-                                            _spot_type='unique',
-                                            _cand_chrom_coords=None,
-                                            _good_chr_loss_th=0.4,
-                                            _cand_spot_intensity_th=0.5, 
-                                            _save=False, _overwrite=False,
-                                            _verbose=True):
-        """Function to select"""
-        from ..segmentation_tools.chromosome import select_candidate_chromosomes
-        
-        # check if already exists
-        if hasattr(self, 'chrom_coords') and not _overwrite:
-            if _verbose:
-                print(f"+ directly use current chromsome coordinates.")
-            return getattr(self, 'chrom_coords')
-        elif not _overwrite:
-            self._load_from_file('fov_info', _load_attr_list=['chrom_coords'],
-                                _overwrite=_overwrite, _verbose=_verbose, )
-            if hasattr(self, 'chrom_coords'):
-                if _verbose:
-                    print(f"+ use chromsome coordinates from savefile: {os.path.basename(self.save_filename)}.")
-                return getattr(self, 'chrom_coords')
-                
-        if _spot_type not in self.shared_parameters['allowed_data_types']:
-            raise KeyError(f"Wrong input _spot_type:{_spot_type}, should be within {list(self.shared_parameters['allowed_data_types'].keys())}")
-        # load spots
-        _spot_attr = f"{_spot_type}_spots_list"
-        # try to load
-        if not hasattr(self, _spot_attr):
-            self._load_from_file(_spot_type, 
-                                _load_image=False, 
-                                _load_processed=True, 
-                                _verbose=_verbose)
-            if not hasattr(self, _spot_attr):
-                raise AttributeError(f"fov class doesn't have {_spot_attr}.")
-        # extract
-        _spots_list = getattr(self, _spot_attr)
-        
-        # chrom_coords
-        if _cand_chrom_coords is None:
-            if not hasattr(self, 'cand_chrom_coords'):
-                self._load_from_file('fov_info', 
-                                    _load_attr_list=['cand_chrom_coords'],
-                                    _verbose=_verbose)
-                if not hasattr(self, 'cand_chrom_coords'):
-                    raise AttributeError(f"fov class doesn't have cand_chrom_coords.")
-            # extract
-            _cand_chrom_coords = list(getattr(self, 'cand_chrom_coords'))
-        else:
-            _cand_chrom_coords = list(_cand_chrom_coords)
-        
-        # calcualte
-        _chrom_coords = select_candidate_chromosomes(_cand_chrom_coords, 
-                                    _spots_list,
-                                    _cand_spot_intensity_th=_cand_spot_intensity_th,
-                                    _good_chr_loss_th=_good_chr_loss_th,
-                                    _verbose=_verbose,
-                                    )
-        
-        # set attributes
-        setattr(self, 'chrom_coords', _chrom_coords)
-        if _save:
-            self._save_to_file('fov_info', _save_attr_list=['chrom_coords'],
-                                _overwrite=_overwrite,
-                                _verbose=_verbose)
-
-        return _chrom_coords
 
     ## load DAPI image
     def _load_dapi_image(self, 
@@ -2371,7 +1841,7 @@ class Field_of_View():
                                         num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                         num_empty_frames=self.shared_parameters['num_empty_frames'],
                                         drift=None, calculate_drift=_use_ref_im,
-                                        drift_channel=self.drift_channel,
+                                        drift_channel=self.fiducial_channel,
                                         ref_filename=_drift_ref,
                                         correction_folder=self.correction_folder,
                                         corr_channels=self.shared_parameters['corr_channels'],
@@ -2411,7 +1881,7 @@ class Field_of_View():
                     break
         _bead_folder = self.annotated_folders[_ind]
         _bead_filename = os.path.join(_bead_folder, self.fov_name)
-        _drift_channel = self.drift_channel
+        _fiducial_channel = self.fiducial_channel
         # get used_channels for this dapi folder:
         _info = self.color_dic[os.path.basename(_bead_folder)]
         _used_channels = []
@@ -2428,13 +1898,13 @@ class Field_of_View():
             _drift_ref = getattr(self, 'ref_filename')
         # load this beads image
         _bead_im = correct_fov_image(_bead_filename, 
-                                    [_drift_channel],
+                                    [_fiducial_channel],
                                     single_im_size=self.shared_parameters['single_im_size'],
                                     all_channels=_used_channels,
                                     num_buffer_frames=self.shared_parameters['num_buffer_frames'],
                                     num_empty_frames=self.shared_parameters['num_empty_frames'],
                                     drift=_drift, calculate_drift=False,
-                                    drift_channel=_drift_channel,
+                                    drift_channel=_fiducial_channel,
                                     ref_filename=_drift_ref,
                                     correction_folder=self.correction_folder,
                                     warp_image=True,
