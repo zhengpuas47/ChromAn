@@ -1,10 +1,11 @@
-import os, sys, re, time, h5py, warnings
+import os, re, time, h5py, warnings, pickle
 import numpy as np 
 import xml.etree.ElementTree as ET
 # default params
 from ..default_parameters import *
 # usful functions
-from ..correction_tools.load import load_correction_profile
+from ..correction_tools.load_corrections import load_correction_profile
+from ..spot_tools.spot_class import Spots3D
 
 class Reader(object):
     """
@@ -193,20 +194,24 @@ class DaxReader(Reader):
             self.fileptr.close()
 
 def load_image_base(
-    filename,
-    sel_channels=None,
-    ImSize=None, 
-    NbufferFrame=default_num_buffer_frames,
-    NemptyFrame=default_num_empty_frames,
-    verbose=False,
+    filename:str,
+    sel_channels:list=None,
+    all_channels:list=None,
+    ImSize:np.ndarray=None, 
+    NbufferFrame:int=default_num_buffer_frames,
+    NemptyFrame:int=default_num_empty_frames,
+    verbose:bool=False,
 ):
     """Function to simply load imaage, referenced as base"""
 
     _load_start = time.time()
     # get all channels
-    _channels = DaxProcesser._FindDaxChannels(filename, verbose=verbose)
+    if all_channels is None:
+        _channels = DaxProcesser._FindDaxChannels(filename, verbose=verbose)
+    else:
+        _channels = [str(_ch) for _ch in all_channels]
     # get selected channels
-    if sel_channels is None:
+    if sel_channels is None or len(sel_channels) == 0:
         _sel_channels = _channels
     elif isinstance(sel_channels, list):
         _sel_channels = [str(_ch) for _ch in sel_channels]
@@ -251,7 +256,7 @@ class DaxProcesser():
                  ImageFilename, 
                  CorrectionFolder=None,
                  Channels=None,
-                 DriftChannel=None,
+                 FiducialChannel=None,
                  DapiChannel=None,
                  verbose=True,
                  ):
@@ -275,9 +280,11 @@ class DaxProcesser():
         self.xml_filename = self.filename.replace('.dax', '.xml') # xml file
         # Correction folder
         self.correction_folder = CorrectionFolder
+        # verbose
+        self.verbose=verbose
         # Channels
         if Channels is None:
-            _loaded_channels = DaxProcesser._FindDaxChannels(self.filename)
+            _loaded_channels = DaxProcesser._FindDaxChannels(self.filename, verbose=self.verbose)
             if _loaded_channels is None:
                 self.channels = default_channels
             else:
@@ -286,14 +293,12 @@ class DaxProcesser():
             self.channels = list(Channels)
         else:
             raise TypeError(f"Wrong input type for Channels")
-        if DriftChannel is not None and str(DriftChannel) in self.channels:
-            setattr(self, 'drift_channel', str(DriftChannel))
+        if FiducialChannel is not None and str(FiducialChannel) in self.channels:
+            setattr(self, 'fiducial_channel', str(FiducialChannel))
         if DapiChannel is not None and str(DapiChannel) in self.channels:
             setattr(self, 'dapi_channel', str(DapiChannel))
         # Log for whether corrections has been done:
         self.correction_log = {_ch:{} for _ch in self.channels}
-        # verbose
-        self.verbose=verbose
         
     def _check_existance(self):
         """Check the existance of the full set of Dax file"""
@@ -314,11 +319,9 @@ class DaxProcesser():
         """Function to load and parse images by channels,
             assuming that for each z-layer, all channels has taken a frame in the same order
         """
-        _load_start = time.time()
         # init loaded channels
         if not hasattr(self, 'loaded_channels'):
             setattr(self, 'loaded_channels', [])
-        
         # get selected channels
         if sel_channels is None:
             _sel_channels = self.channels
@@ -335,26 +338,18 @@ class DaxProcesser():
                 continue
             else:
                 _loading_channels.append(_ch)
-        # get image size
-        if ImSize is None:
-            self.image_size = DaxProcesser._FindImageSize(self.filename,
-                                                 channels=self.channels,
-                                                 NbufferFrame=NbufferFrame,
-                                                 verbose=self.verbose,
-                                                 )
-        else:
-            self.image_size = np.array(ImSize, dtype=np.int32)
-        # Load dax file
-        _reader = DaxReader(self.filename, verbose=self.verbose)
-        _raw_im = _reader.loadAll()
-        # split by channel
-        _ims = split_im_by_channels(
-            _raw_im, _loading_channels,
-            all_channels=self.channels, single_im_size=self.image_size,
-            num_buffer_frames=NbufferFrame, num_empty_frames=NemptyFrame,
+        # Load:
+        _ims, _ = load_image_base(
+            filename=self.filename, 
+            sel_channels=_loading_channels, 
+            all_channels=self.channels,
+            ImSize=ImSize, 
+            NbufferFrame=NbufferFrame,
+            NemptyFrame=NemptyFrame,
+            verbose=self.verbose,
         )
-        if self.verbose:
-            print(f"- Loaded images for channels:{_loading_channels} in {time.time()-_load_start:.3f}s.")
+        if not hasattr(self, 'image_size') and len(_ims) > 0:
+            self.image_size = np.array(_ims[0].shape)
         # save attributes
         if save_attrs:
             for _ch, _im in zip(_loading_channels, _ims):
@@ -374,16 +369,16 @@ class DaxProcesser():
                            correction_folder=None,
                            rescale=True,
                            save_attrs=True,
-                           overwrite=False,
-                           ):
+                           )->None:
         """Apply bleedthrough correction to remove crosstalks between channels
             by a pre-measured matrix"""
         # find correction channels
-        _total_bleedthrough_start = time.time()
+        from ..correction_tools.bleedthrough import bleedthrough_correction
+        
         if correction_channels is None:
             correction_channels = self.loaded_channels
         _correction_channels = [str(_ch) for _ch in correction_channels 
-            if str(_ch) != getattr(self, 'drift_channel', None) \
+            if str(_ch) != getattr(self, 'fiducial_channel', None) \
                 and str(_ch) != getattr(self, 'dapi_channel', None)
             ]
         ## if finished ALL, directly return
@@ -393,52 +388,21 @@ class DaxProcesser():
                 print(f"- Correct bleedthrough already finished, skip. ")
             return 
         ## if not finished, do process
-        if self.verbose:
-            print(f"- Start bleedthrough correction for channels:{_correction_channels}.")
         if correction_folder is None:
             correction_folder = self.correction_folder
-        if correction_pf is None:
-            correction_pf = load_correction_profile(
-                'bleedthrough', _correction_channels,
-                correction_folder=correction_folder,
-                ref_channel=_correction_channels[0],
-                all_channels=self.channels,
-                im_size=self.image_size,
-                verbose=self.verbose,
-            )
-        _corrected_ims = []
-        for _ich, _ch1 in enumerate(_correction_channels):
-            # new image is the sum of all intensity contribution from images in corr_channels
-            _bleedthrough_start = time.time()
-            if getattr(self, f"im_{_ch1}", None) is None:
-                if self.verbose:
-                    print(f"-- skip bleedthrough correction for channel {_ch1}, image not detected.")
-                _corrected_ims.append(None)
-                continue
-            else:
-                _dtype = getattr(self, f"im_{_ch1}", None).dtype
-                _min,_max = np.iinfo(_dtype).min, np.iinfo(_dtype).max
-                # init image
-                _im = np.zeros(self.image_size)
-                for _jch, _ch2 in enumerate(_correction_channels):
-                    if hasattr(self, f"im_{_ch2}"):
-                        _im += getattr(self, f"im_{_ch2}") * correction_pf[_ich, _jch]
-                # rescale
-                if rescale: # (np.max(_im) > _max or np.min(_im) < _min)
-                    _im = (_im - np.min(_im)) / (np.max(_im) - np.min(_im)) * _max + _min
-                _im = np.clip(_im, a_min=_min, a_max=_max).astype(_dtype)
-                _corrected_ims.append(_im)
-                # release RAM
-                del(_im)
-                # print time
-                if self.verbose:
-                    print(f"-- corrected bleedthrough for channel {_ch1} in {time.time()-_bleedthrough_start:.3f}s.")
+        # process
+        _corrected_ims = bleedthrough_correction(
+            [getattr(self, f"im_{_ch}") for _ch in _correction_channels], 
+            _correction_channels,
+            correction_pf=correction_pf,
+            correction_folder=correction_folder,
+            rescale=rescale,
+            verbose=self.verbose,
+        )
         # after finish, save attr
-        if self.verbose:
-            print(f"-- finish bleedthrough correction in {time.time()-_total_bleedthrough_start:.3f}s. ")
         if save_attrs:
             for _ch, _im in zip(_correction_channels, _corrected_ims):
-                setattr(self, f"im_{_ch}", _im)
+                setattr(self, f"im_{_ch}", _im.copy())
             del(_corrected_ims)
             # update log
             for _ch in _correction_channels:
@@ -516,7 +480,7 @@ class DaxProcesser():
                            rescale=True,
                            save_attrs=True,
                            overwrite=False,
-                           ):
+                           )->None:
         """Apply illumination correction to flatten field-of-view illumination
             by a pre-measured 2D-array"""
         _total_illumination_start = time.time()
@@ -600,7 +564,7 @@ class DaxProcesser():
         if correction_channels is None:
             correction_channels = self.loaded_channels
         _correction_channels = [str(_ch) for _ch in correction_channels 
-            if str(_ch) != getattr(self, 'drift_channel', None) and str(_ch) != getattr(self, 'dapi_channel', None)]
+            if str(_ch) != getattr(self, 'fiducial_channel', None) and str(_ch) != getattr(self, 'dapi_channel', None)]
         if self.verbose:
             print(f"- Generate corr_chromatic_functions for channels: {_correction_channels}")
         ## if finished ALL, directly return
@@ -657,7 +621,8 @@ class DaxProcesser():
         
     def _calculate_drift(
         self, 
-        RefImage, DriftChannel='488', 
+        RefImage, 
+        FiducialChannel=default_fiducial_channel, 
         precise_align=True,
         use_autocorr=True, 
         drift_kwargs={},
@@ -671,25 +636,25 @@ class DaxProcesser():
                 print(f"- Drift already calculated, skip.")
             return self.drift, self.drift_flag
         # Load drift image
-        if DriftChannel is None and hasattr(self, 'drift_channel'):
-            DriftChannel = getattr(self, 'drift_channel')
-        elif DriftChannel is not None:
-            DriftChannel = str(DriftChannel)
+        if FiducialChannel is None and hasattr(self, 'fiducial_channel'):
+            FiducialChannel = getattr(self, 'fiducial_channel')
+        elif FiducialChannel is not None:
+            FiducialChannel = str(FiducialChannel)
         else:
-            raise ValueError(f"Wrong input value for DriftChannel: {DriftChannel}")
+            raise ValueError(f"Wrong input value for FiducialChannel: {FiducialChannel}")
         # get _DriftImage
-        if DriftChannel in self.channels and hasattr(self, f"im_{DriftChannel}"):
-            _DriftImage = getattr(self, f"im_{DriftChannel}")
-        elif DriftChannel in self.channels and not hasattr(self, f"im_{DriftChannel}"):
-            _DriftImage = self._load_image(sel_channels=[DriftChannel], 
+        if FiducialChannel in self.channels and hasattr(self, f"im_{FiducialChannel}"):
+            _DriftImage = getattr(self, f"im_{FiducialChannel}")
+        elif FiducialChannel in self.channels and not hasattr(self, f"im_{FiducialChannel}"):
+            _DriftImage = self._load_image(sel_channels=[FiducialChannel], 
                                            ImSize=self.image_size,
                                            NbufferFrame=self.num_buffer_frames, NemptyFrame=self.num_empty_frames,
                                            save_attrs=False)[0][0]
             
         else:
-            raise AttributeError(f"DriftChannel:{DriftChannel} image doesn't exist, exit.")
+            raise AttributeError(f"FiducialChannel:{FiducialChannel} image doesn't exist, exit.")
         if self.verbose:
-            print(f"+ Calculate drift with drift_channel: {DriftChannel}")
+            print(f"+ Calculate drift with fiducial_channel: {FiducialChannel}")
         if isinstance(RefImage, str) and os.path.isfile(RefImage):
             # if come from the same file, skip
             if RefImage == self.filename:
@@ -699,10 +664,10 @@ class DaxProcesser():
                 _drift_flag = 0
                 if save_attr:
                     # drift channel
-                    setattr(self, 'drift_channel', DriftChannel)
+                    setattr(self, 'fiducial_channel', FiducialChannel)
                     # ref image
                     if save_ref_im:
-                        setattr(self, 'ref_im', getattr(self, f"im_{DriftChannel}"))
+                        setattr(self, 'ref_im', getattr(self, f"im_{FiducialChannel}"))
                     # drift results
                     setattr(self, 'drift', _drift)
                     setattr(self, 'drift_flag', _drift_flag)
@@ -712,9 +677,9 @@ class DaxProcesser():
             # load RefImage from file and get this image
             _dft_dax_cls = DaxProcesser(RefImage, CorrectionFolder=self.correction_folder,
                                         Channels=None, verbose=self.verbose)
-            _dft_dax_cls._load_image(sel_channels=[DriftChannel], ImSize=self.image_size,
+            _dft_dax_cls._load_image(sel_channels=[FiducialChannel], ImSize=self.image_size,
                                      NbufferFrame=self.num_buffer_frames, NemptyFrame=self.num_empty_frames)
-            RefImage = getattr(_dft_dax_cls, f"im_{DriftChannel}")
+            RefImage = getattr(_dft_dax_cls, f"im_{FiducialChannel}")
 
         elif isinstance(RefImage, np.ndarray) and (np.array(RefImage.shape)==np.array(_DriftImage.shape)).all():
             # directly add
@@ -729,7 +694,7 @@ class DaxProcesser():
             _drift, _drift_flag = align_image(
                 _DriftImage,
                 RefImage, 
-                use_autocorr=use_autocorr, drift_channel=DriftChannel,
+                use_autocorr=use_autocorr, fiducial_channel=FiducialChannel,
                 verbose=self.verbose, **drift_kwargs,
             )
         else:
@@ -746,7 +711,7 @@ class DaxProcesser():
                 print(f"-- calculate rough drift: {_drift} in {time.time()-_start_time:.3f}s. ")
         if save_attr:
             # drift channel
-            setattr(self, 'drift_channel', DriftChannel)
+            setattr(self, 'fiducial_channel', FiducialChannel)
             # ref image
             if save_ref_im:
                 setattr(self, 'ref_im', RefImage)
@@ -764,6 +729,7 @@ class DaxProcesser():
                     save_attrs=True, overwrite=False,
                     ):
         """Warp image in 3D, this step must give a drift"""
+        from scipy.ndimage import map_coordinates
         _total_warp_start = time.time()
         # get drift
         if drift is not None:
@@ -778,7 +744,7 @@ class DaxProcesser():
             correction_channels = self.loaded_channels
         _correction_channels = [str(_ch) for _ch in correction_channels]
         _chromatic_channels = [_ch for _ch in _correction_channels 
-                            if _ch != getattr(self, 'drift_channel', None) and _ch != getattr(self, 'dapi_channel', None)]
+                            if _ch != getattr(self, 'fiducial_channel', None) and _ch != getattr(self, 'dapi_channel', None)]
         # Log
         _ch_2_finish_warp = {_ch: self.correction_log[_ch].get('corr_drift', False) or  not _drift.any() for _ch in _correction_channels}
         _ch_2_finish_chromatic = {_ch: self.correction_log[_ch].get('corr_chromatic', False) for _ch in _chromatic_channels}
@@ -949,7 +915,7 @@ class DaxProcesser():
         if fit_channels is None:
             fit_channels = self.loaded_channels
         _fit_channels = [str(_ch) for _ch in fit_channels 
-                        if str(_ch) != getattr(self, 'drift_channel', None) \
+                        if str(_ch) != getattr(self, 'fiducial_channel', None) \
                             and str(_ch) != getattr(self, 'dapi_channel', None)]
         if self.verbose:
             print(f"- Fit spots in channels:{_fit_channels}")
@@ -1008,10 +974,10 @@ class DaxProcesser():
             th_seed: default seeding threshold
             num_spots: number of expected spots (within each segmentation mask)
         """
-        from ..segmentation_tools.cell import segmentation_mask_2_bounding_box
+        from ..segmentation_tools.cells import segmentation_mask_2_bounding_box
         from ..spot_tools.fitting import fit_fov_image
         from .partition_spots import Spots_Partition
-        
+        from tqdm import tqdm
         # get drift
         _drift = getattr(self, 'drift', np.zeros(len(self.image_size)))
         # get cell_id
@@ -1100,7 +1066,6 @@ class DaxProcesser():
             return _position_micron
         except:
             raise ValueError(f"Positions not properly parsed")
-
 
     @staticmethod
     def _LoadInfFile(inf_filename):
@@ -1222,11 +1187,15 @@ class DaxWriter(Writer):
         inf_fp.close()
 
 # split multi-channel images from DNA-FISH
-def split_im_by_channels(im, sel_channels, all_channels, 
-                         single_im_size=default_im_size,
-                         num_buffer_frames=default_num_buffer_frames, 
-                         num_empty_frames=default_num_empty_frames, 
-                         skip_frame0=False):
+def split_im_by_channels(
+    im, 
+    sel_channels, 
+    all_channels, 
+    single_im_size=default_im_size,
+    num_buffer_frames=default_num_buffer_frames, 
+    num_empty_frames=default_num_empty_frames, 
+    skip_frame0=False,
+    ):
     """Function to split a full image by channels"""
     _num_colors = len(all_channels)
     if isinstance(sel_channels, str) or isinstance(sel_channels, int):
@@ -1246,7 +1215,7 @@ def split_im_by_channels(im, sel_channels, all_channels,
     #print('_ch_starts', _ch_starts)
     if skip_frame0:
         for _i,_s in enumerate(_ch_starts):
-            if _s == _num_buffer_frames:
+            if _s == num_buffer_frames:
                 _ch_starts[_i] += _num_colors
 
     _splitted_ims = [im[_s:_s+single_im_size[0]*_num_colors:_num_colors].copy() for _s in _ch_starts]
