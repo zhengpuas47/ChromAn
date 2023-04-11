@@ -86,10 +86,23 @@ class Color_Usage(pd.DataFrame):
                  return _c
         return None
     @staticmethod
+    def get_dapi_channel_index(color_usage_df):
+        _dapi_ch = Color_Usage.get_dapi_channel(color_usage_df)
+        if _dapi_ch is not None:
+            return Color_Usage.get_channels(color_usage_df).index(_dapi_ch)
+        else:
+            return None
+    @staticmethod
     def get_fiducial_channel(color_usage_df, fiducial_query='beads'):
         for _c in color_usage_df.columns:
              if fiducial_query in color_usage_df[_c].fillna(-1).values:
                  return _c
         return None
-    
+    @staticmethod
+    def get_fiducial_channel_index(color_usage_df):
+        _fiducial_ch = Color_Usage.get_fiducial_channel(color_usage_df)
+        if _fiducial_ch is not None:
+            return Color_Usage.get_channels(color_usage_df).index(_fiducial_ch)
+        else:
+            return None
         
