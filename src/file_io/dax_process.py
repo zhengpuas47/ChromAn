@@ -258,6 +258,7 @@ class DaxProcesser():
                  Channels=None,
                  FiducialChannel=None,
                  DapiChannel=None,
+                 RefCorrectionChannel=None,
                  verbose=True,
                  ):
         """Initialize DaxProcessing class"""
@@ -294,12 +295,15 @@ class DaxProcesser():
         else:
             raise TypeError(f"Wrong input type for Channels")
         if FiducialChannel is not None and str(FiducialChannel) in self.channels:
-            setattr(self, 'fiducial_channel', str(FiducialChannel))
+            self.fiducial_channel = str(FiducialChannel)
         if DapiChannel is not None and str(DapiChannel) in self.channels:
-            setattr(self, 'dapi_channel', str(DapiChannel))
+            self.dapi_channel = str(DapiChannel)
+        if RefCorrectionChannel is not None and str(RefCorrectionChannel) in self.channels:
+            self.ref_correction_channel = str(DapiChannel)
         # Log for whether corrections has been done:
         self.correction_log = {_ch:{} for _ch in self.channels}
-        
+        self.correction_praram = {}
+
     def _check_existance(self):
         """Check the existance of the full set of Dax file"""
         # return True if all file exists
@@ -354,15 +358,117 @@ class DaxProcesser():
         if save_attrs:
             for _ch, _im in zip(_loading_channels, _ims):
                 setattr(self, f"im_{_ch}", _im)
-            setattr(self, 'num_buffer_frames', NbufferFrame)
-            setattr(self, 'num_empty_frames', NemptyFrame)
+            self.num_buffer_frames = NbufferFrame
+            self.num_empty_frames = NemptyFrame
             self.loaded_channels.extend(_loading_channels)
             # sort loaded
             self.loaded_channels = [_ch for _ch in sorted(self.loaded_channels, key=lambda v: self.channels.index(v))]
             return
         else:
             return _ims, _loading_channels
+        
+    def _calculate_drift(
+        self, 
+        RefImage, 
+        FiducialChannel=default_fiducial_channel, 
+        use_autocorr=True, 
+        drift_kwargs={},
+        save_attr=True, 
+        save_ref_im=False,
+        overwrite=False,
+        ):
+        """Calculate drift given reference image"""
+        from ..correction_tools.alignment import align_image
+        if hasattr(self, 'drift') and hasattr(self, 'drift_flag') and not overwrite:
+            if self.verbose:
+                print(f"- Drift already calculated, skip.")
+            return self.drift, self.drift_flag
+        # Load drift image
+        if FiducialChannel is None and hasattr(self, 'fiducial_channel'):
+            FiducialChannel = getattr(self, 'fiducial_channel')
+        elif FiducialChannel is not None:
+            FiducialChannel = str(FiducialChannel)
+            if not hasattr(self, 'fiducial_channel'):
+                self.fiducial_channel = FiducialChannel
+        else:
+            raise ValueError(f"Wrong input value for FiducialChannel: {FiducialChannel}")
+        # Load drift image
+        if self.correction_log[FiducialChannel].get('corr_drift', False):
+            # if drift channel already warpped, stop
+            if self.verbose:
+                print(f"Fiducial image in channel {FiducialChannel} is broken, reload.")
+            _DriftImage = self._load_image(sel_channels=[FiducialChannel], 
+                                           ImSize=self.image_size,
+                                           NbufferFrame=self.num_buffer_frames, NemptyFrame=self.num_empty_frames,
+                                           save_attrs=False)[0][0]
+        elif FiducialChannel in self.channels and hasattr(self, f"im_{FiducialChannel}"):
+            _DriftImage = getattr(self, f"im_{FiducialChannel}")
+        elif FiducialChannel in self.channels and not hasattr(self, f"im_{FiducialChannel}"):
+            _DriftImage = self._load_image(sel_channels=[FiducialChannel], 
+                                           ImSize=self.image_size,
+                                           NbufferFrame=self.num_buffer_frames, NemptyFrame=self.num_empty_frames,
+                                           save_attrs=False)[0][0]
+        else:
+            raise AttributeError(f"FiducialChannel:{FiducialChannel} image doesn't exist, exit.")
+        if self.verbose:
+            print(f"+ Calculate drift with fiducial_channel: {FiducialChannel}")
 
+        # case1: RefImage is the same file:
+        if isinstance(RefImage, str) and RefImage == self.filename:
+            if RefImage == self.filename:
+                if self.verbose:
+                    print(f"-- processing ref_image itself, skip.")
+                _drift = np.zeros(len(self.image_size))
+                _drift_flag = -1
+        else:
+            # case2: RefImage is a different filename, load and get image:
+            if isinstance(RefImage, str) and os.path.isfile(RefImage):
+                # create class
+                _dft_dax_cls = DaxProcesser(
+                    RefImage, 
+                    CorrectionFolder=self.correction_folder,
+                    Channels=None, # only channels not specified
+                    FiducialChannel=FiducialChannel,
+                    DapiChannel=getattr(self, 'dapi_channel', None),
+                    verbose=self.verbose
+                    )
+                # load image
+                _dft_dax_cls._load_image(
+                    sel_channels=[FiducialChannel], 
+                    ImSize=self.image_size,
+                    NbufferFrame=self.num_buffer_frames, 
+                    NemptyFrame=self.num_empty_frames
+                    )
+                # get refimage
+                RefImage = getattr(_dft_dax_cls, f"im_{FiducialChannel}")
+            # case 3: a image is directly given, which matches size
+            elif isinstance(RefImage, np.ndarray) and (np.array(RefImage.shape)==np.array(_DriftImage.shape)).all():
+                pass # directly use
+            else:
+                raise ValueError(f"Wrong input of RefImage, should be either a matched sized image, or a filename")
+            # save ref_im if specified
+            if save_ref_im:
+                self.ref_im = RefImage
+            # align image
+            _drift, _drift_flag = align_image(
+                _DriftImage,
+                RefImage, 
+                use_autocorr=use_autocorr, 
+                fiducial_channel=FiducialChannel,
+                verbose=self.verbose, 
+                **drift_kwargs,
+            )
+        # save attribute and return
+        if save_attr:
+            # drift channel
+            self.fiducial_channel = FiducialChannel
+            # drift results
+            self.drift = _drift
+            self.drift_flag = _drift_flag
+        # return
+        return _drift, _drift_flag
+
+    # correct bleedthrough between channels
     def _corr_bleedthrough(self,
                            correction_channels=None,
                            correction_pf=None, 
@@ -374,7 +480,6 @@ class DaxProcesser():
             by a pre-measured matrix"""
         # find correction channels
         from ..correction_tools.bleedthrough import bleedthrough_correction
-        
         if correction_channels is None:
             correction_channels = self.loaded_channels
         _correction_channels = [str(_ch) for _ch in correction_channels 
@@ -407,19 +512,27 @@ class DaxProcesser():
             # update log
             for _ch in _correction_channels:
                 self.correction_log[_ch]['corr_bleedthrough'] = True
+            self.correction_praram['corr_bleedthrough'] = {
+                'rescale':rescale,
+            }
             return 
         else:
             return _corrected_ims, _correction_channels
+        
     # remove hot pixels
-    def _corr_hot_pixels_3D(
+    def _corr_hot_pixels(
         self, 
         correction_channels=None,
+        correction_pf=None,
+        correction_folder=None,
         hot_pixel_th:float=0.5, 
-        hot_pixel_num_th:float=4, 
+        hot_pixel_num_th:float=4,
+        interpolation_style='nearest', 
+        rescale=True, 
         save_attrs:bool=True,
         )->None:
         """Remove hot pixel by interpolation"""
-        _total_hot_pixel_start = time.time()
+        from ..correction_tools.filter import hot_pixel_correction
         if correction_channels is None:
             correction_channels = self.loaded_channels
         _correction_channels = [str(_ch) for _ch in correction_channels]
@@ -430,48 +543,44 @@ class DaxProcesser():
         if np.array(_logs).all():
             if self.verbose:
                 print(f"- Correct hot_pixel already finished, skip. ")
-            return 
+            if save_attrs:
+                return 
+            else:
+                return [],[]
         ## update _correction_channels based on log
         _correction_channels = [_ch for _ch, _log in zip(_correction_channels, _logs) if not _log ]
         if self.verbose:
             print(f"-- Keep channels: {_correction_channels} for corr_hot_pixel.")
-        _corrected_ims = []
-        # apply correction
-        for _ch in _correction_channels:
-            _hot_pixel_time = time.time()
-            _im = getattr(self, f"im_{_ch}", None)
-            if _im is None:
-                if self.verbose:
-                    print(f"-- skip hot_pixel correction for channel {_ch}, image not detected.")
-                if not save_attrs:
-                    _corrected_ims.append(None)
-                continue
-            else:
-                from ..correction_tools.filter import Remove_Hot_Pixels
-                _dtype = _im.dtype
-                _im = Remove_Hot_Pixels(_im, _dtype, 
-                    hot_pix_th=hot_pixel_th,
-                    hot_th=hot_pixel_num_th,
-                )
-                # save attr
-                if save_attrs:
-                    setattr(self, f"im_{_ch}", _im.astype(_dtype), )
-                    # update log
-                    self.correction_log[_ch]['corr_hot_pixel'] = True
-                else:
-                    _corrected_ims.append(_im)
-                # release RAM
-                del(_im)
-                # print time
-                if self.verbose:
-                    print(f"-- corrected hot_pixel for channel {_ch} in {time.time()-_hot_pixel_time:.3f}s.")
-        # finish
-        if self.verbose:
-            print(f"- Finished hot_pixel correction in {time.time()-_total_hot_pixel_start:.3f}s.")
+        # process
+        _corrected_ims = hot_pixel_correction(
+            [getattr(self, f"im_{_ch}") for _ch in _correction_channels], 
+            _correction_channels,
+            correction_pf=correction_pf,
+            correction_folder=correction_folder,
+            hot_pixel_th=hot_pixel_th,
+            hot_pixel_num_th=hot_pixel_num_th,
+            interpolation_style=interpolation_style,
+            rescale=rescale,
+            verbose=self.verbose,
+        )
+        # after finish, save attr
         if save_attrs:
-            return
+            for _ch, _im in zip(_correction_channels, _corrected_ims):
+                setattr(self, f"im_{_ch}", _im.copy())
+            del(_corrected_ims)
+            # update log
+            for _ch in _correction_channels:
+                self.correction_log[_ch]['corr_hot_pixel'] = True
+            self.correction_praram['corr_hot_pixel'] = {
+                'hot_pixel_th':hot_pixel_th, 
+                'hot_pixel_num_th':hot_pixel_num_th,
+                'interpolation_style':interpolation_style, 
+                'rescale':rescale,
+            }
+            return 
         else:
             return _corrected_ims, _correction_channels
+        
     # illumination correction                    
     def _corr_illumination(self, 
                            correction_channels=None,
@@ -483,7 +592,7 @@ class DaxProcesser():
                            )->None:
         """Apply illumination correction to flatten field-of-view illumination
             by a pre-measured 2D-array"""
-        _total_illumination_start = time.time()
+        from ..correction_tools.illumination import illumination_correction
         if correction_channels is None:
             correction_channels = self.loaded_channels
         _correction_channels = [str(_ch) for _ch in correction_channels]
@@ -494,7 +603,10 @@ class DaxProcesser():
         if np.array(_logs).all():
             if self.verbose:
                 print(f"- Correct illumination already finished, skip. ")
-            return 
+            if save_attrs:
+                return
+            else:
+                return [],[]
         ## update _correction_channels based on log
         _correction_channels = [_ch for _ch, _log in zip(_correction_channels, _logs) if not _log ]
         if self.verbose:
@@ -502,352 +614,125 @@ class DaxProcesser():
         # load profile
         if correction_folder is None:
             correction_folder = self.correction_folder
-        if correction_pf is None:
-            correction_pf = load_correction_profile(
-                'illumination', _correction_channels,
-                correction_folder=correction_folder,
-                ref_channel=_correction_channels[0],
-                all_channels=self.channels,
-                im_size=self.image_size,
-                verbose=self.verbose,
-            )
-        _corrected_ims = []
-        # apply correction
-        for _ch in _correction_channels:
-            _illumination_time = time.time()
-            _im = getattr(self, f"im_{_ch}", None)
-            if _im is None:
-                if self.verbose:
-                    print(f"-- skip illumination correction for channel {_ch}, image not detected.")
-                if not save_attrs:
-                    _corrected_ims.append(None)
-                continue
-            else:
-                _dtype = _im.dtype
-                _min,_max = np.iinfo(_dtype).min, np.iinfo(_dtype).max
-                # apply corr
-                _im = _im.astype(np.float32) / correction_pf[_ch][np.newaxis,:]
-                if rescale: # (np.max(_im) > _max or np.min(_im) < _min)
-                    _im = (_im - np.min(_im)) / (np.max(_im) - np.min(_im)) * _max + _min
-                _im = np.clip(_im, a_min=_min, a_max=_max)
-                # save attr
-                if save_attrs:
-                    setattr(self, f"im_{_ch}", _im.astype(_dtype), )
-                    # update log
-                    self.correction_log[_ch]['corr_illumination'] = True
-                else:
-                    _corrected_ims.append(_im)
-                # release RAM
-                del(_im)
-                # print time
-                if self.verbose:
-                    print(f"-- corrected illumination for channel {_ch} in {time.time()-_illumination_time:.3f}s.")
-        # finish
-        if self.verbose:
-            print(f"- Finished illumination correction in {time.time()-_total_illumination_start:.3f}s.")
+        # process
+        _corrected_ims = illumination_correction(
+            [getattr(self, f"im_{_ch}") for _ch in _correction_channels], 
+            _correction_channels,
+            correction_pf=correction_pf,
+            correction_folder=correction_folder,
+            rescale=rescale,
+            verbose=self.verbose,
+        )
+        # after finish, save attr
         if save_attrs:
+            for _ch, _im in zip(_correction_channels, _corrected_ims):
+                setattr(self, f"im_{_ch}", _im.copy())
+            del(_corrected_ims)
+            # update log
+            for _ch in _correction_channels:
+                self.correction_log[_ch]['corr_illumination'] = True
+            self.correction_praram['corr_illumination'] = {
+                'rescale':rescale,
+            }
             return
         else:
             return _corrected_ims, _correction_channels
 
-    def _corr_chromatic_functions(self, 
-        correction_channels=None,
-        correction_pf=None, 
-        correction_folder=None,
-        ref_channel=default_ref_channel,
-        save_attrs=True,
-        overwrite=False,
-        ):
-        """Generate chromatic_abbrevation functions for each channel"""
-        from ..correction_tools.chromatic import generate_chromatic_function
-        _total_chromatic_start = time.time()
-        if correction_channels is None:
-            correction_channels = self.loaded_channels
-        _correction_channels = [str(_ch) for _ch in correction_channels 
-            if str(_ch) != getattr(self, 'fiducial_channel', None) and str(_ch) != getattr(self, 'dapi_channel', None)]
-        if self.verbose:
-            print(f"- Generate corr_chromatic_functions for channels: {_correction_channels}")
-        ## if finished ALL, directly return
-        _logs = [self.correction_log[_ch].get('corr_chromatic', False) or self.correction_log[_ch].get('corr_chromatic_function', False)
-            for _ch in _correction_channels]
-        if np.array(_logs).all():
-            if self.verbose:
-                print(f"- Correct chromatic function already finished, skip. ")
-            return 
-        # update _correction_channels based on log
-        _correction_channels = [_ch for _ch, _log in zip(_correction_channels, _logs) if not _log ]
-        if self.verbose:
-            print(f"- Keep channels: {_correction_channels} for corr_chromatic_functions.")
-        ## if not finished, do process
-        if self.verbose:
-            print(f"- Start generating chromatic correction for channels:{_correction_channels}.")
-        if correction_folder is None:
-            correction_folder = self.correction_folder
-        if correction_pf is None:
-            correction_pf = load_correction_profile(
-                'chromatic_constants', _correction_channels,
-                correction_folder=correction_folder,
-                all_channels=self.channels,
-                ref_channel=ref_channel,
-                im_size=self.image_size,
-                verbose=self.verbose,
-            )
-        ## loop through channels to generate functions
-        # init corrected_funcs
-        _image_size = getattr(self, 'image_size')
-        _drift = getattr(self, 'drift', np.zeros(len(_image_size)))
-        _corrected_funcs = []
-        # apply
-        for _ch in _correction_channels:
-            if self.verbose:
-                _chromatic_time = time.time()
-                print(f"-- generate chromatic_shift_function for channel: {_ch}", end=' ')
-            _func = generate_chromatic_function(correction_pf[_ch], _drift)
-            if save_attrs:
-                setattr(self, f"chromatic_func_{_ch}", _func)
-            else:
-                _corrected_funcs.append(_func)
-            if self.verbose:
-                print(f"in {time.time()-_chromatic_time:.3f}s")
-        if self.verbose:
-            print(f"-- finish generating chromatic functions in {time.time()-_total_chromatic_start:.3f}s")
-        if save_attrs:
-            # update log
-            for _ch in _correction_channels:
-                self.correction_log[_ch]['corr_chromatic_function'] = True
-            return 
-        else:
-            return _corrected_funcs
-        
-    def _calculate_drift(
-        self, 
-        RefImage, 
-        FiducialChannel=default_fiducial_channel, 
-        precise_align=True,
-        use_autocorr=True, 
-        drift_kwargs={},
-        save_attr=True, 
-        save_ref_im=False,
-        overwrite=False,
-        ):
-        """Calculate drift given reference image"""
-        if hasattr(self, 'drift') and hasattr(self, 'drift_flag') and not overwrite:
-            if self.verbose:
-                print(f"- Drift already calculated, skip.")
-            return self.drift, self.drift_flag
-        # Load drift image
-        if FiducialChannel is None and hasattr(self, 'fiducial_channel'):
-            FiducialChannel = getattr(self, 'fiducial_channel')
-        elif FiducialChannel is not None:
-            FiducialChannel = str(FiducialChannel)
-        else:
-            raise ValueError(f"Wrong input value for FiducialChannel: {FiducialChannel}")
-        # get _DriftImage
-        if FiducialChannel in self.channels and hasattr(self, f"im_{FiducialChannel}"):
-            _DriftImage = getattr(self, f"im_{FiducialChannel}")
-        elif FiducialChannel in self.channels and not hasattr(self, f"im_{FiducialChannel}"):
-            _DriftImage = self._load_image(sel_channels=[FiducialChannel], 
-                                           ImSize=self.image_size,
-                                           NbufferFrame=self.num_buffer_frames, NemptyFrame=self.num_empty_frames,
-                                           save_attrs=False)[0][0]
-            
-        else:
-            raise AttributeError(f"FiducialChannel:{FiducialChannel} image doesn't exist, exit.")
-        if self.verbose:
-            print(f"+ Calculate drift with fiducial_channel: {FiducialChannel}")
-        if isinstance(RefImage, str) and os.path.isfile(RefImage):
-            # if come from the same file, skip
-            if RefImage == self.filename:
-                if self.verbose:
-                    print(f"-- processing ref_image itself, skip.")
-                _drift = np.zeros(len(self.image_size))
-                _drift_flag = 0
-                if save_attr:
-                    # drift channel
-                    setattr(self, 'fiducial_channel', FiducialChannel)
-                    # ref image
-                    if save_ref_im:
-                        setattr(self, 'ref_im', getattr(self, f"im_{FiducialChannel}"))
-                    # drift results
-                    setattr(self, 'drift', _drift)
-                    setattr(self, 'drift_flag', _drift_flag)
-                    return 
-                else:
-                    return _drift, _drift_flag
-            # load RefImage from file and get this image
-            _dft_dax_cls = DaxProcesser(RefImage, CorrectionFolder=self.correction_folder,
-                                        Channels=None, verbose=self.verbose)
-            _dft_dax_cls._load_image(sel_channels=[FiducialChannel], ImSize=self.image_size,
-                                     NbufferFrame=self.num_buffer_frames, NemptyFrame=self.num_empty_frames)
-            RefImage = getattr(_dft_dax_cls, f"im_{FiducialChannel}")
-
-        elif isinstance(RefImage, np.ndarray) and (np.array(RefImage.shape)==np.array(_DriftImage.shape)).all():
-            # directly add
-            if save_ref_im:
-                setattr(self, 'ref_im', RefImage)
-            pass
-        else:
-            raise ValueError(f"Wrong input of RefImage, should be either a matched sized image, or a filename")
-        # align image
-        if precise_align:
-            from ..correction_tools.alignment import align_image
-            _drift, _drift_flag = align_image(
-                _DriftImage,
-                RefImage, 
-                use_autocorr=use_autocorr, fiducial_channel=FiducialChannel,
-                verbose=self.verbose, **drift_kwargs,
-            )
-        else:
-            if self.verbose:
-                print("-- use auto correlation to calculate rough drift.")
-            # calculate drift with autocorr
-            from skimage.registration import phase_cross_correlation
-            _start_time = time.time()
-            _drift, _error, _phasediff = phase_cross_correlation(
-                RefImage, _DriftImage, 
-                )
-            _drift_flag = 2
-            if self.verbose:
-                print(f"-- calculate rough drift: {_drift} in {time.time()-_start_time:.3f}s. ")
-        if save_attr:
-            # drift channel
-            setattr(self, 'fiducial_channel', FiducialChannel)
-            # ref image
-            if save_ref_im:
-                setattr(self, 'ref_im', RefImage)
-            # drift results
-            setattr(self, 'drift', _drift)
-            setattr(self, 'drift_flag', _drift_flag)
-        return _drift, _drift_flag
     # warp image
     def _warp_image(self,
-                    drift=None,
                     correction_channels=None,
-                    corr_chromatic=True, chromatic_pf=None,
+                    corr_drift=True,
+                    corr_chromatic=True, 
+                    correction_pf=None,
                     correction_folder=None,
-                    ref_channel=default_ref_channel,
-                    save_attrs=True, overwrite=False,
+                    ref_channel=None,
+                    warp_kwargs={'warp_order':1, 'border_mode':'grid-constant'},
+                    rescale=True, # not useful here
+                    save_attrs=True, 
                     ):
-        """Warp image in 3D, this step must give a drift"""
-        from scipy.ndimage import map_coordinates
-        _total_warp_start = time.time()
+        """Warp image in 3D to correct for translation and chromatic abbrevation
+          this step require at least one of drift or chromatic profile.
+          """
+        from ..correction_tools.translate import warp_3D_images
+        if not corr_chromatic and not corr_drift:
+            raise ValueError("At least one of drift or chromatic should be specified")
         # get drift
-        if drift is not None:
-            _drift = np.array(drift)
-        elif hasattr(self, 'drift'):
-            _drift = getattr(self, 'drift')
-        else:
-            _drift = np.zeros(len(self.image_size))
-            warnings.warn(f"drift not given to warp image. ")
+        _drift = getattr(self, 'drift', np.zeros(len(self.image_size))) 
         # get channels
         if correction_channels is None:
             correction_channels = self.loaded_channels
         _correction_channels = [str(_ch) for _ch in correction_channels]
         _chromatic_channels = [_ch for _ch in _correction_channels 
                             if _ch != getattr(self, 'fiducial_channel', None) and _ch != getattr(self, 'dapi_channel', None)]
-        # Log
-        _ch_2_finish_warp = {_ch: self.correction_log[_ch].get('corr_drift', False) or  not _drift.any() for _ch in _correction_channels}
-        _ch_2_finish_chromatic = {_ch: self.correction_log[_ch].get('corr_chromatic', False) for _ch in _chromatic_channels}
-        _logs = [_ch_2_finish_warp.get(_ch) and _ch_2_finish_chromatic.get(_ch, True) for _ch in _correction_channels]
-        if np.array(_logs).all():
+        # check logs
+        _drift_channels = [_ch for _ch in _correction_channels 
+                           if _drift.any() # drift exist
+                           #and _ch != getattr(self, 'fiducial_channel', None) # not fiducial channel
+                           and not self.correction_log[_ch].get('corr_drift', False)] # have not corrected
+        _chromatic_channels = [_ch for _ch in _correction_channels 
+                               if _ch != getattr(self, 'fiducial_channel', None) # not fiducial channel
+                               and not self.correction_log[_ch].get('corr_chromatic', False)] # have not corrected
+        # skip this if nothing specified
+        if len(_drift_channels) == 0 and len(_chromatic_channels) == 0:
             if self.verbose:
                 print(f"- Warp drift and chromatic already finished, skip. ")
-            return 
+            if save_attrs:
+                return
+            else:
+                return [],[]
         # start warpping
         if self.verbose:
-            print(f"- Start warpping images channels:{_correction_channels}.")
+            print(f"- Start warpping images drift:{_drift_channels}, chromatic:{_chromatic_channels}")
         if correction_folder is None:
             correction_folder = self.correction_folder
-        # load chromatic warp
-        if corr_chromatic and chromatic_pf is None:
-            chromatic_pf = load_correction_profile(
-                'chromatic', _chromatic_channels,
-                correction_folder=correction_folder,
-                all_channels=self.channels,
-                ref_channel=ref_channel,
-                im_size=self.image_size,
-                verbose=self.verbose,
-            )
-        # init corrected_ims
-        _corrected_ims = []
-        # do warpping
-        for _ch in _correction_channels:
-            _chromatic_time = time.time()
-            # get flag for this channel
-            _finish_warp = _ch_2_finish_warp.get(_ch)
-            _finish_chromatic = _ch_2_finish_chromatic.get(_ch, True)
-            print(_ch, _finish_warp, _finish_chromatic)
-            # skip if not required
-            if _finish_warp and (_finish_chromatic or not corr_chromatic):
-                if self.verbose:
-                    print(f"-- skip warpping image for channel {_ch}, no drift or chromatic required.")
-                continue
-            # get image
-            _im = getattr(self, f"im_{_ch}", None)
-            if _im is None:
-                if self.verbose:
-                    print(f"-- skip warpping image for channel {_ch}, image not detected.")
-                continue
-            # 1. get coordiates to be mapped
-            _coords = np.meshgrid(np.arange(self.image_size[0]), 
-                                np.arange(self.image_size[1]), 
-                                np.arange(self.image_size[2]), 
-                                )
-            # transpose is necessary  
-            _coords = np.stack(_coords).transpose((0, 2, 1, 3)) 
-            _note = f"-- warp image"
-            # 2. apply drift if necessary
-            if not _finish_warp:
-                _coords = _coords - _drift[:, np.newaxis,np.newaxis,np.newaxis]
-                _note += f' with drift:{_drift}'
-                # update flag
-                self.correction_log[_ch]['corr_drift'] = True
-            # 3. aaply chromatic if necessary
-            if not _finish_chromatic and corr_chromatic:
-                _note += ' with chromatic abbrevation' 
-                if chromatic_pf[_ch] is None and str(_ch) == ref_channel:
-                    pass
-                else:                 
-                    _coords = _coords + chromatic_pf[_ch]
-                # update flag
-                self.correction_log[_ch]['corr_chromatic'] = True
-            # 4. map coordinates
-            if self.verbose:
-                print(f"{_note} for channel: {_ch}")
-            _im = map_coordinates(_im, 
-                                _coords.reshape(_coords.shape[0], -1),
-                                mode='nearest').astype(_im.dtype)
-            _im = _im.reshape(tuple(self.image_size))
-
-            # 5. save
-            if save_attrs:
-                setattr(self, f"im_{_ch}", _im,)
-            else:
-                _corrected_ims.append(_im)
-            # release RAM
-            del(_im)
-            # print time
-            if self.verbose:
-                print(f"-- finish warpping channel {_ch} in {time.time()-_chromatic_time:.3f}s.")
-        
-        # print time
-        if self.verbose:
-            print(f"-- finish warpping in {time.time()-_total_warp_start:.3f}s.")
+        if ref_channel is None:
+            ref_channel = getattr(self, 'ref_correction_channel', default_ref_channel)
+        # process
+        _corrected_ims = warp_3D_images(
+            [getattr(self, f"im_{_ch}") for _ch in _correction_channels], 
+            _correction_channels,
+            corr_drift=(len(_drift_channels)>0),
+            drift=_drift,
+            drift_channels=_drift_channels,
+            corr_chromatic=(len(_chromatic_channels)>0),
+            correction_pf=correction_pf,
+            chromatic_channels=_chromatic_channels,
+            correction_folder=correction_folder,
+            ref_channel=ref_channel,
+            rescale=rescale,
+            verbose=self.verbose,
+            **warp_kwargs,
+        )
+        # after finish, save attr
         if save_attrs:
+            for _ch, _im in zip(_correction_channels, _corrected_ims):
+                setattr(self, f"im_{_ch}", _im.copy())
+            del(_corrected_ims)
+            # update log
+            for _ch in _correction_channels:
+                if _ch in _drift_channels:
+                    self.correction_log[_ch]['corr_drift'] = True
+                if _ch in _chromatic_channels:
+                    self.correction_log[_ch]['corr_chromatic'] = True
+            self.correction_praram['warp'] = warp_kwargs
+            self.correction_praram['warp']['rescale'] = rescale
             return
         else:
             return _corrected_ims, _correction_channels
+
     # Gaussian highpass for high-background images
-    def _gaussian_highpass(self,                            
-                        correction_channels=None,
-                        gaussian_sigma=3,
-                        gaussian_truncate=2,
-                        save_attrs=True,
-                        overwrite=False,
-                        ):
+    def _gaussian_highpass(
+        self,                            
+        correction_channels=None,
+        correction_pf=None,
+        correction_folder=None,
+        sigma=3,
+        truncate=2,
+        rescale=True, 
+        save_attrs=True,
+        ):
         """Function to apply gaussian highpass for selected channels"""
-        from ..correction_tools.filter import gaussian_high_pass_filter
-        _total_highpass_start = time.time()
+        from ..correction_tools.filter import gaussian_highpass_correction
         if correction_channels is None:
             correction_channels = self.loaded_channels
         _correction_channels = [str(_ch) for _ch in correction_channels 
@@ -859,51 +744,43 @@ class DaxProcesser():
         if np.array(_logs).all():
             if self.verbose:
                 print(f"-- Gaussian_highpass for channel:{_correction_channels} already finished, skip. ")
-            return 
+            if save_attrs:
+                return 
+            else:
+                return [],[]
         # update _correction_channels based on log
         _correction_channels = [_ch for _ch, _log in zip(_correction_channels, _logs) if not _log ]
         if self.verbose:
             print(f"-- Keep channels: {_correction_channels} for gaussian_highpass.")
         # loop through channels
-        _corrected_ims = []
-        for _ch in _correction_channels:
-            if self.verbose:
-                print(f"-- applying gaussian highpass, channel={_ch}, sigma={gaussian_sigma}", end=' ')
-                _highpass_time = time.time()
-            # get image
-            _im = getattr(self, f"im_{_ch}", None)
-            if _im is None:
-                if self.verbose:
-                    print(f"-- skip gaussian_highpass for channel {_ch}, image not detected.")
-                if not save_attrs:
-                    _corrected_ims.append(None)
-                continue
-            else:
-                _dtype = _im.dtype
-                _min,_max = np.iinfo(_dtype).min, np.iinfo(_dtype).max
-                # apply gaussian highpass filter
-                _im = gaussian_high_pass_filter(_im, gaussian_sigma, gaussian_truncate)
-                _im = np.clip(_im, a_min=_min, a_max=_max).astype(_dtype)
-                # save attr
-                if save_attrs:
-                    setattr(self, f"im_{_ch}", _im)
-                    # update log
-                    self.correction_log[_ch]['corr_highpass'] = True
-                else:
-                    _corrected_ims.append(_im)
-                # release RAM
-                del(_im)
-                # print time
-                if self.verbose:
-                    print(f"in {time.time()-_highpass_time:.3f}s")
-        # finish
-        if self.verbose:
-            print(f"- Finished gaussian_highpass filtering in {time.time()-_total_highpass_start:.3f}s.")
+        # process
+        _corrected_ims = gaussian_highpass_correction(
+            [getattr(self, f"im_{_ch}") for _ch in _correction_channels], 
+            _correction_channels,
+            correction_pf=correction_pf,
+            correction_folder=correction_folder,
+            sigma=sigma,
+            truncate=truncate,
+            rescale=rescale,
+            verbose=self.verbose,
+        )
+        # after finish, save attr
         if save_attrs:
-            return
+            for _ch, _im in zip(_correction_channels, _corrected_ims):
+                setattr(self, f"im_{_ch}", _im.copy())
+            del(_corrected_ims)
+            # update log
+            for _ch in _correction_channels:
+                self.correction_log[_ch]['corr_gaussian_highpass'] = True
+            self.correction_praram['corr_gaussian_highpass'] = {
+                'sigma':sigma, 
+                'truncate':truncate,
+                'rescale':rescale, 
+            }
+            return 
         else:
             return _corrected_ims, _correction_channels
-            
+        
     # Spot_fitting:
     def _fit_spots(self, fit_channels=None, 
                 th_seed=1000, num_spots=None, fitting_kwargs={},
@@ -1033,10 +910,80 @@ class DaxProcesser():
         if save_folder is None:
             pass
 
-        
+
+    def _corr_chromatic_functions(self, 
+        correction_channels=None,
+        correction_pf=None, 
+        correction_folder=None,
+        ref_channel=default_ref_channel,
+        save_attrs=True,
+        overwrite=False,
+        ):
+        """Generate chromatic_abbrevation functions for each channel"""
+        from ..correction_tools.chromatic import generate_chromatic_function
+        _total_chromatic_start = time.time()
+        if correction_channels is None:
+            correction_channels = self.loaded_channels
+        _correction_channels = [str(_ch) for _ch in correction_channels 
+            if str(_ch) != getattr(self, 'fiducial_channel', None) and str(_ch) != getattr(self, 'dapi_channel', None)]
+        if self.verbose:
+            print(f"- Generate corr_chromatic_functions for channels: {_correction_channels}")
+        ## if finished ALL, directly return
+        _logs = [self.correction_log[_ch].get('corr_chromatic', False) or self.correction_log[_ch].get('corr_chromatic_function', False)
+            for _ch in _correction_channels]
+        if np.array(_logs).all():
+            if self.verbose:
+                print(f"- Correct chromatic function already finished, skip. ")
+            return 
+        # update _correction_channels based on log
+        _correction_channels = [_ch for _ch, _log in zip(_correction_channels, _logs) if not _log ]
+        if self.verbose:
+            print(f"- Keep channels: {_correction_channels} for corr_chromatic_functions.")
+        ## if not finished, do process
+        if self.verbose:
+            print(f"- Start generating chromatic correction for channels:{_correction_channels}.")
+        if correction_folder is None:
+            correction_folder = self.correction_folder
+        if correction_pf is None:
+            correction_pf = load_correction_profile(
+                'chromatic_constants', _correction_channels,
+                correction_folder=correction_folder,
+                all_channels=self.channels,
+                ref_channel=ref_channel,
+                im_size=self.image_size,
+                verbose=self.verbose,
+            )
+        ## loop through channels to generate functions
+        # init corrected_funcs
+        _image_size = getattr(self, 'image_size')
+        _drift = getattr(self, 'drift', np.zeros(len(_image_size)))
+        _corrected_funcs = []
+        # apply
+        for _ch in _correction_channels:
+            if self.verbose:
+                _chromatic_time = time.time()
+                print(f"-- generate chromatic_shift_function for channel: {_ch}", end=' ')
+            _func = generate_chromatic_function(correction_pf[_ch], _drift)
+            if save_attrs:
+                setattr(self, f"chromatic_func_{_ch}", _func)
+            else:
+                _corrected_funcs.append(_func)
+            if self.verbose:
+                print(f"in {time.time()-_chromatic_time:.3f}s")
+        if self.verbose:
+            print(f"-- finish generating chromatic functions in {time.time()-_total_chromatic_start:.3f}s")
+        if save_attrs:
+            # update log
+            for _ch in _correction_channels:
+                self.correction_log[_ch]['corr_chromatic_function'] = True
+            return 
+        else:
+            return _corrected_funcs
+
     # Loading:
     def _load_from_hdf5(self):
         pass
+
     @staticmethod
     def _FindDaxChannels(dax_filename,
                          verbose=True,

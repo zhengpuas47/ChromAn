@@ -514,16 +514,17 @@ def bleedthrough_correction(
         _dtype = ims[_ich].dtype
         _min,_max = np.iinfo(_dtype).min, np.iinfo(_dtype).max
         # init image
-        _im = np.zeros(image_size)
+        _cim = np.zeros(image_size)
         for _jch, _ch2 in enumerate(channels):
-            _im += ims[_jch] * correction_pf[_ich, _jch]
+            _cim += ims[_jch] * correction_pf[_ich, _jch]
         # rescale
-        if rescale: # (np.max(_im) > _max or np.min(_im) < _min)
-            _im = (_im - np.min(_im)) / (np.max(_im) - np.min(_im)) * _max + _min
-        _im = np.clip(_im, a_min=_min, a_max=_max).astype(_dtype)
-        _corrected_ims.append(_im.copy())
+        if rescale: # (np.max(_cim) > _max or np.min(_cim) < _min)
+            _cim = (_cim - np.min(_cim)) / (np.max(_cim) - np.min(_cim)) * _max + _min
+            _cim = _cim.astype(_dtype)
+        _cim = np.clip(_cim, a_min=_min, a_max=_max).astype(_dtype)
+        _corrected_ims.append(_cim.copy())
         # release RAM
-        del(_im)
+        del(_cim)
         # print time
         if verbose:
             print(f"-- corrected bleedthrough for channel {_ch1} in {time.time()-_bleedthrough_start:.3f}s.")

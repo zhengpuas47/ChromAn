@@ -26,8 +26,12 @@ _default_imshow_parameters = {
 }
 
 class imshow_mark_3d:
-    def __init__(self,ims,ims_c=[],fig=None,image_names=None,rescz=1.,
-                 min_max_default=[None,None], save_file=None, parameters=dict()):
+    def __init__(self,ims,ims_c=[],fig=None,
+                 image_names=None,rescz=1.,
+                 use_dict=None,
+                 min_max_default=[None,None], 
+                 save_file=None, 
+                 parameters=dict()):
         """
         This is a class which controls an interactive maplotlib figure.
         Intended for navigating and interacting with 'spot'-like data that is spread across multiple images <ims>.
@@ -45,6 +49,18 @@ class imshow_mark_3d:
         
         Optional features:
         Can provide a list of color 3d images (or functions that produce color 3d images) as markers (i.e. DAPI or geminin)
+        Usage example:
+        # load
+        from ChromAn.src.spot_tools import spot_fitting
+        from ChromAn.src.visual_tools import interactive
+        # fit
+        fitter = spot_fitting.SpotFitter(test_image)
+        fitter.seeding(seeding_kwargs={'th_seed':2000})
+        fitter.CPU_fitting()
+        # plot
+        interactive.imshow_mark_3d([fitter.image],
+                                   use_dict={'coords':fitter.spots.to_coords(),
+                                             'class_ids':np.zeros(len(fitter.spots)),})        
         
         """
         #internalize
@@ -62,9 +78,13 @@ class imshow_mark_3d:
         #define extra vars
         self.dic_min_max = {} #kees record of the min-max for adjusting contrast for the grayscale images
         self.dic_min_max_c = {} #kees record of the min-max for adjusting contrast for the color images
-        self.class_ids = []
-        self.draw_x,self.draw_y,self.draw_z=[],[],[]
-        self.coords = list(zip(self.draw_x,self.draw_y,self.draw_z))
+        if isinstance(use_dict, dict):
+            self.class_ids = np.array(use_dict['class_ids'], dtype=np.int32)
+            self.draw_x,self.draw_y,self.draw_z= np.fliplr(use_dict['coords']).T
+        else:
+            self.class_ids = []
+            self.draw_x,self.draw_y,self.draw_z=[],[],[]
+            self.coords = list(zip(self.draw_x,self.draw_y,self.draw_z))
         self.delete_mode = False
         #load vars
         self.load_coords()

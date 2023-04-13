@@ -99,8 +99,8 @@ def align_image(
     min_good_drifts:int=3, 
     drift_diff_th:float=1.,
     all_channels:list=default_channels, 
-    ref_all_channels=None, 
-    drift_channel=default_drift_channel,
+    ref_all_channels:list=None, 
+    fiducial_channel=default_fiducial_channel,
     correction_args={},
     fitting_args={},
     match_distance_th=2.,
@@ -131,9 +131,9 @@ def align_image(
     # check channels
     _all_channels = [str(_ch) for _ch in all_channels]
     # check bead_channel
-    _drift_channel = str(drift_channel)
-    if _drift_channel not in all_channels:
-        raise ValueError(f"bead channel {_drift_channel} not exist in all channels given:{_all_channels}")
+    _fiducial_channel = str(fiducial_channel)
+    if _fiducial_channel not in all_channels:
+        raise ValueError(f"bead channel {_fiducial_channel} not exist in all channels given:{_all_channels}")
     # check ref_all_channels
     if ref_all_channels is None:
         _ref_all_channels = _all_channels
@@ -142,7 +142,7 @@ def align_image(
     
     ## process source image
     # define result flag
-    _result_flag = 0
+    _result_flag = -1
     # process image
     if isinstance(src_im, np.ndarray):
         if verbose:
@@ -154,7 +154,7 @@ def align_image(
         if not os.path.isfile(src_im) or src_im.split('.')[-1] != 'dax':
             raise IOError(f"input src_im: {src_im} should be a .dax file!")
         _src_im = load_image_base(
-            src_im, [_drift_channel], 
+            src_im, [_fiducial_channel], 
             verbose=detailed_verbose,
             )[0][0]
     else:
@@ -171,7 +171,7 @@ def align_image(
         if not os.path.isfile(ref_im) or ref_im.split('.')[-1] != 'dax':
             raise IOError(f"input ref_im: {ref_im} should be a .dax file!")
         _ref_im = load_image_base(
-            ref_im, [_drift_channel], 
+            ref_im, [_fiducial_channel], 
             verbose=detailed_verbose,
             )[0][0]
     else:
@@ -200,12 +200,12 @@ def align_image(
             if detailed_verbose:
                 print("--- use beads fitting to calculate drift.")
             # source
-            _src_spots = fit_fov_image(_sim, _drift_channel, 
+            _src_spots = fit_fov_image(_sim, _fiducial_channel, 
                 verbose=detailed_verbose,
                 **_fitting_args) # fit source spots
             _sp_src_cts = select_sparse_centers(_src_spots[:,1:4], match_distance_th) # select sparse source spots
             # reference
-            _ref_spots = fit_fov_image(_rim, _drift_channel, 
+            _ref_spots = fit_fov_image(_rim, _fiducial_channel, 
                 verbose=detailed_verbose,
                 **_fitting_args)
             _sp_ref_cts = select_sparse_centers(_ref_spots[:,1:4], match_distance_th, 
@@ -234,7 +234,7 @@ def align_image(
             _kept_drift_inds = np.where(_dists <= drift_diff_th)[0]
             if len(_kept_drift_inds) >= min_good_drifts:
                 _updated_mean_dft = np.nanmean(np.array(_drifts)[_kept_drift_inds], axis=0)
-                _result_flag += 0
+                _result_flag = 1
                 if verbose:
                     print(f"--- drifts for crops:{_kept_drift_inds} pass the thresold, exit cycle.")
                 break
@@ -256,6 +256,6 @@ def align_image(
             print(f"--- select drifts: {np.round(_sel_drifts, 2)}")
         # return mean
         _updated_mean_dft = np.nanmean(_sel_drifts, axis=0)
-        _result_flag += 1
+        _result_flag = 0
 
     return  _updated_mean_dft, _result_flag
