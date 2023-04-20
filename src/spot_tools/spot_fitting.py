@@ -1,10 +1,11 @@
-import time
+import time, warnings
 
 import numpy as np
 from .spot_class import Spots3D
 
 _default_seeding_parameters = {
-    'th_seed': 200,
+    'th_seed': 500,
+    'max_num_seeds': None,
 }
 _default_fitting_parameters = {
     'radius_fit': 5, # size of gaussian kernel
@@ -16,28 +17,36 @@ class SpotFitter(object):
     def __init__(
         self, 
         image, 
-        parameters=dict(), 
+        seeding_parameters=dict(),
+        fitting_parameters=dict(), 
         verbose=True,
         ):
         """Class of spot fitting"""
         super().__init__()
         self.image = image
-        self.parameters = _default_fitting_parameters
-        self.parameters.update(parameters)
+        self.seeding_parameters = _default_seeding_parameters
+        self.seeding_parameters.update(seeding_parameters)
+        self.fitting_parameters = _default_fitting_parameters
+        self.fitting_parameters.update(fitting_parameters)
         self.verbose = verbose
         return
 
     def seeding(
         self, 
-        seeding_kwargs=dict(),
+        seeding_kwargs=None,
         overwrite=True,
         ):
         """Function to call get_seeds"""
         if not hasattr(self, 'seeds') or overwrite:
             if self.verbose:
                 print("- start SpotFitter seeding")
-            _seeding_kwargs = _default_seeding_parameters
-            _seeding_kwargs.update(seeding_kwargs)
+            # kwargs
+            _seeding_kwargs = self.seeding_parameters
+            if isinstance(seeding_kwargs, dict):
+                _seeding_kwargs.update(seeding_kwargs)
+            if len(_seeding_kwargs) == 0:
+                warnings.warn(f"No fitting kwargs provided, use default parameters")
+            # seed
             self.seeds = SpotFitter.get_seeds(
                 self.image, verbose=self.verbose,
                 **_seeding_kwargs,
@@ -48,7 +57,7 @@ class SpotFitter(object):
 
     def CPU_fitting(
         self, 
-        fitting_args=dict(),
+        fitting_kwargs=None,
         remove_boundary_points=False,
         normalization=None, 
         normalization_kwargs=dict(),      
@@ -61,12 +70,16 @@ class SpotFitter(object):
             print(f"-- start fitting spots with {len(self.seeds)} seeds, ", end='')
             _fit_time = time.time()
         ## fitting
-        _fitting_args = _default_fitting_parameters
-        _fitting_args.update(fitting_args)
+        _fitting_kwargs = self.fitting_parameters
+        if isinstance(fitting_kwargs, dict):
+            _fitting_kwargs.update(fitting_kwargs)
+        if len(_fitting_kwargs) == 0:
+            warnings.warn(f"No fitting kwargs provided, use default parameters")
+        # fit
         _fitter = iter_fit_seed_points(
             self.image, self.seeds.to_coords().T, 
             #init_w=init_sigma, weight_sigma=weight_sigma,
-            **_fitting_args,
+            **_fitting_kwargs,
         )    
         # fit
         _fitter.firstfit()
@@ -143,6 +156,8 @@ class SpotFitter(object):
         use_dynamic_th: whetaher use dynamic th_seed, bool, default=True, 
         dynamic_niters: number of iterations used for dynamic th_seed, int, default=10, 
         min_dynamic_seeds: minimal number of seeds to get with dynamic seeding, int, default=1,
+        remove_hot_pixel: whether remove pixel that generate multiple seeds, bool, default=True,
+        hot_pixel_th: max threshold to remove for seeds within this pixel, int, default=3 
         verbose: whether say something!, bool, default=False,
         """
         from scipy.stats import scoreatpercentile
@@ -264,13 +279,19 @@ class SpotFitter(object):
         return points[np.array(flags, dtype=bool)]
 
     @staticmethod
-    def find_image_background(im, bin_size=10, make_plot=False, max_iter=10):
+    def find_image_background(
+        im, 
+        bin_size=10, 
+        make_plot=False, 
+        max_iter=10,
+        ):
         """Function to calculate image background
         Inputs: 
             im: image, np.ndarray,
-            dtype: data type for image, numpy datatype (default: np.uint16) 
             bin_size: size of histogram bin, smaller -> higher precision and longer time,
                 float (default: 10)
+            make_plot: whether generate plot for background calling, bool (default:False),
+            max_iter: maximum number of iteration to perform peak calling, int (default:10),
         Output: 
             _background: determined background level, float
         """

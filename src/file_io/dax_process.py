@@ -1,4 +1,4 @@
-import os, re, time, h5py, warnings, pickle
+import os, re, time, h5py, pickle
 import numpy as np 
 import xml.etree.ElementTree as ET
 # default params
@@ -259,6 +259,7 @@ class DaxProcesser():
                  FiducialChannel=None,
                  DapiChannel=None,
                  RefCorrectionChannel=None,
+                 SaveFilename=None,
                  verbose=True,
                  ):
         """Initialize DaxProcessing class"""
@@ -279,10 +280,28 @@ class DaxProcesser():
         self.off_filename = self.filename.replace('.dax', '.off') # offset file
         self.power_filename = self.filename.replace('.dax', '.power') # power file
         self.xml_filename = self.filename.replace('.dax', '.xml') # xml file
+        # verbose
+        self.verbose = verbose
+        # save filename
+        if SaveFilename is None:
+            self.save_filename = os.path.join(
+                os.path.dirname(self.filename),
+                os.path.basename(self.filename).split('.dax')[0] + '_processed.hdf5',
+            )
+        elif isinstance(SaveFilename, str):
+            self.save_filename = SaveFilename
+        else:
+            raise TypeError("SaveFilename should be a string of file full path.")
+        if os.path.isfile(self.save_filename):
+            if self.verbose:
+                print(f"- Existing save file: {self.save_filename}")
+        else:
+            if self.verbose:
+                print(f"- New save file: {self.save_filename}")
+        self.saving_log = {}
         # Correction folder
         self.correction_folder = CorrectionFolder
-        # verbose
-        self.verbose=verbose
+
         # Channels
         if Channels is None:
             _loaded_channels = DaxProcesser._FindDaxChannels(self.filename, verbose=self.verbose)
@@ -639,17 +658,18 @@ class DaxProcesser():
             return _corrected_ims, _correction_channels
 
     # warp image
-    def _warp_image(self,
-                    correction_channels=None,
-                    corr_drift=True,
-                    corr_chromatic=True, 
-                    correction_pf=None,
-                    correction_folder=None,
-                    ref_channel=None,
-                    warp_kwargs={'warp_order':1, 'border_mode':'grid-constant'},
-                    rescale=True, # not useful here
-                    save_attrs=True, 
-                    ):
+    def _corr_warpping_drift_chromatic(
+        self,
+        correction_channels=None,
+        corr_drift=True,
+        corr_chromatic=True, 
+        correction_pf=None,
+        correction_folder=None,
+        ref_channel=None,
+        warp_kwargs={'warp_order':1, 'border_mode':'grid-constant'},
+        rescale=True, # not useful here
+        save_attrs=True, 
+        ):
         """Warp image in 3D to correct for translation and chromatic abbrevation
           this step require at least one of drift or chromatic profile.
           """
@@ -721,7 +741,7 @@ class DaxProcesser():
             return _corrected_ims, _correction_channels
 
     # Gaussian highpass for high-background images
-    def _gaussian_highpass(
+    def _corr_gaussian_highpass(
         self,                            
         correction_channels=None,
         correction_pf=None,
@@ -782,135 +802,248 @@ class DaxProcesser():
             return _corrected_ims, _correction_channels
         
     # Spot_fitting:
-    def _fit_spots(self, fit_channels=None, 
-                th_seed=1000, num_spots=None, fitting_kwargs={},
-                save_attrs=True, overwrite=False):
-        """Fit spots for the entire image"""
-        from ..spot_tools.fitting import fit_fov_image
-        # total start time
-        _total_fit_start = time.time()
-        if fit_channels is None:
-            fit_channels = self.loaded_channels
-        _fit_channels = [str(_ch) for _ch in fit_channels 
-                        if str(_ch) != getattr(self, 'fiducial_channel', None) \
-                            and str(_ch) != getattr(self, 'dapi_channel', None)]
-        if self.verbose:
-            print(f"- Fit spots in channels:{_fit_channels}")
-        _fit_logs = [hasattr(self, f'spots_{_ch}') and not overwrite for _ch in _fit_channels]
-        ## if finished ALL, directly return
-        if np.array(_fit_logs).all():
-            if self.verbose:
-                print(f"-- Fitting for channel:{_fit_channels} already finished, skip. ")
-            return 
-        # update _fit_channels based on log
-        _fit_channels = [_ch for _ch, _log in zip(_fit_channels, _fit_logs) if not _log ]
-        # th_seeds
-        if isinstance(th_seed, int) or isinstance(th_seed, float):
-            _ch_2_thSeed = {_ch:th_seed for _ch in _fit_channels}
-        elif isinstance(th_seed, dict):
-            _ch_2_thSeed = {str(_ch):_th for _ch,_th in th_seed.items()}
-        if self.verbose:
-            print(f"-- Keep channels: {_fit_channels} for fitting.")
-        _spots_list = []
-        for _ch in _fit_channels:
-            if self.verbose:
-                print(f"-- fitting channel={_ch}", end=' ')
-                _fit_time = time.time()
-            # get image
-            _im = getattr(self, f"im_{_ch}", None)
-            if _im is None:
-                if self.verbose:
-                    print(f"-- skip fitting for channel {_ch}, image not detected.")
-                continue
-            # fit
-            _th_seed = _ch_2_thSeed.get(_ch, default_seed_th)
-            _spots = fit_fov_image(_im, _ch, 
-                                th_seed=_th_seed, max_num_seeds=num_spots, 
-                                verbose=self.verbose,
-                                **fitting_kwargs)
-            _cell_ids = np.ones(len(_spots),dtype=np.int32) -1
-            if save_attrs:
-                setattr(self, f"spots_{_ch}", _spots)
-                setattr(self, f"spots_cell_ids_{_ch}", _cell_ids)
-            else:
-                _spots_list.append(_spots)
-        # return
-        if self.verbose:
-            print(f"-- finish fitting in {time.time()-_total_fit_start:.3f}s.")
-        if save_attrs:
-            return
-        else:
-            return _spots_list
-    # Spot Fitting 2, by segmentation
-    def _fit_spots_by_segmentation(self, channel, seg_label, 
-                                   th_seed=500, num_spots=None, fitting_kwargs={},
-                                   segment_search_radius=3, 
-                                   save_attrs=True, verbose=False):
-        """Function to fit spots within each segmentation
-        Necessary numbers:
-            th_seed: default seeding threshold
-            num_spots: number of expected spots (within each segmentation mask)
+    def _fit_3D_spots(
+        self,
+        fit_channels:list=None,
+        seeding_kwargs:dict=dict(),
+        fitting_mode:str='cpu',
+        fitting_kwargs:dict=dict(),
+        normalization:str=None, 
+        normalization_kwargs:dict=dict(),
+        overwrite:bool=False,
+        detailed_verbose:bool=False,        
+    ):
+        """Function to call spot_fitting module to perform 3D spot fitting.
+        Inputs:
+            fit_channels: list of channels to be fit, list or np.ndarray,
+            seeding_kwargs: key arguments for seeding, dict,
+            fitting_mode: type of fitting to be performed, str (default:'cpu'),
+            normalization: type of normalization to fitted spot intensities, str (default:None),
+            normalization_kwargs: key arguments for normalization, dict,
+            overwrite: whether overwrite existing fitted spots, bool (default:False),
+            detailed_verbose: print more details, bool (default:False),
+        Outputs:
+            fitted_spots: list of Spots3D for fitted channels,
+            fitted_channels: list of channels that actually performed fitting.
         """
-        from ..segmentation_tools.cells import segmentation_mask_2_bounding_box
-        from ..spot_tools.fitting import fit_fov_image
-        from .partition_spots import Spots_Partition
-        from tqdm import tqdm
-        # get drift
-        _drift = getattr(self, 'drift', np.zeros(len(self.image_size)))
-        # get cell_id
-        if self.verbose:
-            print(f"- Start fitting spots in each segmentation")
-        _cell_ids = np.unique(seg_label)
-        _cell_ids = _cell_ids[_cell_ids>0]
-
-        _all_spots, _all_cell_ids = [], []
-        for _cell_id in tqdm(_cell_ids):
-            _cell_mask = (seg_label==_cell_id)
-            _crop = segmentation_mask_2_bounding_box(_cell_mask, 3)
-
-            _local_mask = _cell_mask[_crop.to_slices()]
-            _drift_crop = _crop.translate_drift(drift=_drift)
-            _drift_local_im = getattr(self, f'im_{channel}')[_drift_crop.to_slices()]
-            # fit
-            _spots = fit_fov_image(_drift_local_im, str(channel), 
-                                th_seed=th_seed, max_num_seeds=num_spots, 
-                                verbose=verbose,
-                                **fitting_kwargs)
-            if len(_spots) > 0:
-                # adjust to absolute coordinate per fov
-                _spots = Spots3D(_spots)
-                _spots[:,_spots.coordinate_indices] = _spots[:,_spots.coordinate_indices] + _drift_crop.array[:,0]
-                # keep spots within mask
-                _kept_flg = Spots_Partition.spots_to_labels(_cell_mask, _spots, 
-                                                            search_radius=segment_search_radius,verbose=False)
-                _spots = _spots[_kept_flg>0]
-                # append
-                if len(_spots) > 0:
-                    _all_spots.append(_spots)
-                    _all_cell_ids.append(np.ones(len(_spots), dtype=np.int32)*_cell_id)
-        # concatenate
-        if len(_all_spots) > 0:
-            _all_spots = np.concatenate(_all_spots)
-            _all_cell_ids = np.concatenate(_all_cell_ids)
+        # determine channels to fit
+        from ..spot_tools.spot_fitting import SpotFitter
+        if fit_channels is None:
+            _fit_channels = self.loaded_channels
+        elif isinstance(fit_channels, list) or isinstance(fit_channels, np.ndarray):
+            _fit_channels = [str(_ch) for _ch in fit_channels]
         else:
-            _all_spots = np.array([])
-            _all_cell_ids = np.array([])
-            print(f"No spots detected.")
-        # save attr
-        if save_attrs:
-            setattr(self, f"spots_{channel}", _all_spots)
-            setattr(self, f"spots_cell_ids_{channel}", _all_cell_ids)
-            return
-        return _all_spots, _all_cell_ids
+            raise TypeError(f"Wrong input type ({type(fit_channels)}) for fit_channels.")
+        _fit_channels = [str(_ch) for _ch in _fit_channels 
+            if str(_ch) != getattr(self, 'fiducial_channel', None) \
+                and str(_ch) != getattr(self, 'dapi_channel', None)
+            ] # not include fiducial and dapi channels
+        ## all finished, directly return:
+        _require_fitting_flags = [
+            (not hasattr(self, f"spots_{_ch}") or overwrite) \
+            and hasattr(self, f"im_{_ch}") 
+            for _ch in _fit_channels
+        ]
+        # modify fitted channels
+        _fit_channels = [_ch 
+                         for _ch, _flag in zip(_fit_channels, _require_fitting_flags)
+                         if _flag]
+        _fit_spots = []
+        if not hasattr(self, 'fitting_log'):
+            self.fitting_log = {_ch:{} for _ch in self.channels}        
+        # start
+        for _ch in _fit_channels:
+            if self.verbose and not detailed_verbose:
+                print(f"-- fit spots in channel: {_ch}", end=', ')
+                _fit_start = time.time()
+            _fitter = SpotFitter(
+                getattr(self, f"im_{_ch}"),
+                seeding_kwargs,
+                fitting_kwargs,
+                detailed_verbose,
+            )
+            # seeding
+            _fitter.seeding()
+            # fitting
+            if fitting_mode == 'cpu':
+                _fitter.CPU_fitting(
+                    remove_boundary_points=False,
+                    normalization=normalization,
+                    normalization_kwargs=normalization_kwargs,
+                )
+            # retrive spots
+            _spots = _fitter.spots.copy()
+            # add to attribute
+            setattr(self, f"spots_{_ch}", _spots)
+            _fit_spots.append(_spots)
+            # save log
+            self.fitting_log[_ch].update(
+                {
+                    'seeding': _fitter.seeding_parameters,
+                    'fitting': _fitter.fitting_parameters,
+                    'remove_boundary_points': False,
+                    'normalization': normalization,
+                    'normalization_kwargs': normalization_kwargs, 
+                }
+            )
+            if self.verbose and not detailed_verbose:
+                print(f"{len(_spots)} fitted in {time.time()-_fit_start:.3f}s.")
+        # return
+        return _fit_spots, _fit_channels
 
     # Saving:
-    def _save_to_hdf5(self):
+    def _save_to_file(self):
+        """Save processed information into a file"""
+
+
+
+    def _save_param_to_hdf5(
+      self,
+      save_type,
+      hdf5_filename=None, 
+      key=None,
+      overwrite=False,
+    ):
+        """
+        """
+        # check save_type
+        if save_type in ['correction', 'fitting']:
+            pass
+        elif save_type in ['spots', 'im']:
+            raise ValueError(f"For data, use _save_data_to_hdf5. ")
+        elif save_type in ['base']:
+            raise ValueError(f"For data, use _save_base_to_hdf5. ")
+        else:
+            raise ValueError("Invalid save_type.")
+        # get default save information:
+        if hdf5_filename is None:
+            if self.verbose:
+                print("- use default save filename.")
+            hdf5_filename = self.save_filename
+        if key is None:
+            if self.verbose:
+                print("- use default save key.")
+            key = save_type
+        # retrieve information:
+        _param_dict = getattr(self, f"{save_type}_log")
+        with h5py.File(hdf5_filename, 'a') as _f:
+            for _ch, _info in _param_dict.items():
+                _ch_key = key + '/' + _ch
+                _channel_updated_attrs = []
+                if _ch_key not in _f or overwrite:
+                    _group = _f.require_group(_ch_key)
+                else:
+                    _group = _f[_ch_key]
+                # save attrs
+                for _k,_v in _info.items():
+                    if _k not in _group.attrs or overwrite:
+                        _group.attrs[_k] = _v
+                        _channel_updated_attrs.append(_k)
+                if self.verbose:
+                    print(f"-- saved {_ch_key} with {_channel_updated_attrs} attributes.")
+
+        return
+    def _save_base_to_hdf5(
+        self,
+    ):
+        """ """
         pass
+    
+    def _save_data_to_hdf5(
+        self,
+        channel,
+        save_type,
+        hdf5_filename=None, 
+        key=None,
+        index=None,
+        compression='gzip',
+        overwrite=False,
+        ):
+        """Function to save selected information to given hdf5 file and key
+        Inputs:
+            channel: color channel to save, str;
+            save_type: datatype to be saved, str ([spots, im]);
+            hdf5_filename: full filename of hdf5 target save file, str;
+            key: save key within this hdf5 file, str;
+            index: index within this hdf5_filename/key dataset, int or slice;
+            compression: type of compression applied to hdf5, str or None;
+            overwrite: whether overwrite existing datasets in hdf5,
+        NOTICE: this method doesn't allow change of dataset shape in hdf5 file.
+        """
+        # check channel
+        if channel not in self.channels:
+            raise ValueError(f"Wrong channel:{channel}")
+        # check if info exists:
+        if save_type in ['spots', 'im']:
+            _attr_name = f"{save_type}_{channel}"
+            if not hasattr(self, _attr_name):
+                raise AttributeError(f"Target data: {_attr_name} doesn't exist.")
+        elif save_type in ['base', 'correction', 'fitting']:
+            raise ValueError(f"For parameters, use save_param_to_hdf5. ")
+        else:
+            raise ValueError("Invalid save_type.")
+        if save_type not in self.saving_log:
+            self.saving_log[save_type] = []
+        # get default save information:
+        if hdf5_filename is None:
+            if self.verbose:
+                print("- use default save filename.")
+            hdf5_filename = self.save_filename
+        if key is None:
+            if self.verbose:
+                print("- use default save key.")
+            key = '/'.join([channel, save_type])
+        # get save target file:
+        if not os.path.exists(os.path.dirname(hdf5_filename)):
+            if self.verbose:
+                print(f"Creating folder: {os.path.dirname(hdf5_filename)}")
+            os.makedirs(os.path.dirname(hdf5_filename))
+        # open this file:
+        if self.verbose:
+            if os.path.exists(hdf5_filename):
+                print(f"- saving to existing file: {hdf5_filename}")
+            else:
+                print(f"- saving to new file: {hdf5_filename}")
+        # open and search key
+        _data = getattr(self, _attr_name)
+        with h5py.File(hdf5_filename, 'a') as _f:
+            if key not in _f or overwrite:
+                if index is None:
+                    _dataset = _f.require_dataset(key, 
+                                                  shape=_data.shape, 
+                                                  dtype=_data.dtype,
+                                                  chunks=_data.shape,
+                                                  compression=compression,
+                                                  )
+                    _dataset[:] = _data
+                else:
+                    _dataset = _f.require_dataset(key, 
+                                                  shape=tuple([index]+list(_data.shape)), 
+                                                  dtype=_data.dtype,
+                                                  chunks=[1]+list(_data.shape),
+                                                  compression=compression,
+                                                  )
+                    _dataset[index] = _data
+                if self.verbose:
+                    print(f"-- saving {key}, shape={_data.shape}")
+                # update log
+                self.saving_log[save_type].append(
+                    [save_type, channel, hdf5_filename, key, index, True]
+                )
+            else:
+                if self.verbose:
+                    print(f"-- skip saving {key}, already exists")
+                # write to log
+                self.saving_log[save_type].append(
+                    [save_type, channel, hdf5_filename, key, index, False]
+                )
+        return
+
     def _save_to_npy(self, save_channels, save_folder=None, save_basenames=None):
         if save_folder is None:
             pass
-
-
+    
+    
     def _corr_chromatic_functions(self, 
         correction_channels=None,
         correction_pf=None, 
