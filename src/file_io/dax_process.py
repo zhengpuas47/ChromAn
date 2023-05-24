@@ -729,7 +729,7 @@ class DaxProcesser():
             chromatic_channels=_chromatic_channels,
             correction_folder=correction_folder,
             ref_channel=ref_channel,
-            rescale=rescale,
+            #rescale=rescale,
             verbose=self.verbose,
             **warp_kwargs,
         )

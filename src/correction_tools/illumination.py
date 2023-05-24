@@ -158,7 +158,7 @@ def _image_to_profile(
     ## step 2: calculate mean profile
     _pfs = []
     for _im, _ch in zip(_ims, sel_channels):
-        _nim = np.array(_im, dtype=np.float)
+        _nim = np.array(_im, dtype=np.float32)
         # remove extreme values if specified
         if remove_cap:
             _limits = [scoreatpercentile(_im, min(cap_th_per)), 
