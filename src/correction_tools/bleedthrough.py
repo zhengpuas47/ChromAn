@@ -178,7 +178,7 @@ def check_bleedthrough_pairs(info_list, outlier_sigma=2, keep_per_th=0.95, max_i
                                                               _intercepts[_kept_flags])):
             # get neighboring center ids
             _nb_ids = np.array([_simplex for _simplex in _tri.simplices.copy()
-                                if _i in _simplex], dtype=np.int)
+                                if _i in _simplex], dtype=np.int32)
             _nb_ids = np.unique(_nb_ids)
             # remove itself
             _nb_ids = _nb_ids[(_nb_ids != _i) & (_nb_ids != -1)]

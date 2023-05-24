@@ -56,7 +56,7 @@ def generate_chromatic_function(chromatic_const_file, drift=None):
         else:
             _info_dict ={
                 'constants': [np.array([0]) for _dft in drift],
-                'fitting_orders': np.zeros(len(drift),dtype=np.int),
+                'fitting_orders': np.zeros(len(drift),dtype=np.int32),
                 'ref_center': np.zeros(len(drift)),
             }
     else:

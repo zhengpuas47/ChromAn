@@ -173,10 +173,10 @@ class SpotFitter(object):
             if len(sel_center) != len(np.shape(im)):
                 raise IndexError(f"num of dimensions should match for selected center and image given.")
             # get selected center and cropping neighbors
-            _center = np.array(sel_center, dtype=np.int)
+            _center = np.array(sel_center, dtype=np.int64)
             _llims = np.max([np.zeros(len(im.shape)), _center-seed_radius], axis=0)
             _rlims = np.min([np.array(im.shape), _center+seed_radius], axis=0)
-            _lims = np.array(np.transpose(np.stack([_llims, _rlims])), dtype=np.int)
+            _lims = np.array(np.transpose(np.stack([_llims, _rlims])), dtype=np.int64)
             _lim_crops = tuple([slice(_l,_r) for _l,_r in _lims])
             # crop image
             _im = im[_lim_crops]
@@ -255,7 +255,7 @@ class SpotFitter(object):
             print(f"found {len(_final_coords)} seeds in {time.time()-_start_time:.2f}s")
         # truncate with max_num_seeds
         if max_num_seeds is not None and max_num_seeds > 0 and max_num_seeds <= len(_final_coords):
-            _final_coords = _final_coords[:np.int(max_num_seeds)]
+            _final_coords = _final_coords[:np.int64(max_num_seeds)]
             if verbose:
                 print(f"--- {max_num_seeds} seeds are kept.")
         return Spots3D(_final_coords)
@@ -385,7 +385,7 @@ def fit_fov_image(im, channel, seeds=None,
     if seed_mask is not None:
         _sel_seeds = []
         for _seed in _seeds:
-            if seed_mask[tuple(np.round(_seed[:len(np.shape(im))]).astype(np.int32))] > 0:
+            if seed_mask[tuple(np.round(_seed[:len(np.shape(im))]).astype(np.int64))] > 0:
                 _sel_seeds.append(_seed)
         # replace seeds
         _seeds = np.array(_sel_seeds)

@@ -11,7 +11,7 @@ def _find_boundary(_ct, _radius, _im_size):
     for _c, _sz in zip(_ct, _im_size):
         _bds.append([max(_c-_radius, 0), min(_c+_radius, _sz)])
     
-    return np.array(_bds, dtype=np.int)
+    return np.array(_bds, dtype=np.int32)
 
 
 def generate_drift_crops(single_im_size=default_im_size, 
@@ -20,14 +20,14 @@ def generate_drift_crops(single_im_size=default_im_size,
     keywards:
         single_im_size: single image size to generate crops, np.ndarray like;
         coord_sel: selected center coordinate to split image into 4 rectangles, np.ndarray like;
-        drift_size: size of drift crop, int or np.int;
+        drift_size: size of drift crop, int or np.int32;
     returns:
         crops: 4x3x2 np.ndarray. 
     """
     # check inputs
     _single_im_size = np.array(single_im_size)
     if coord_sel is None:
-        coord_sel = np.array(_single_im_size/2, dtype=np.int)
+        coord_sel = np.array(_single_im_size/2, dtype=np.int32)
     if coord_sel[-2] >= _single_im_size[-2] or coord_sel[-1] >= _single_im_size[-1]:
         raise ValueError(f"wrong input coord_sel:{coord_sel}, should be smaller than single_im_size:{single_im_size}")
     if drift_size is None:
@@ -183,7 +183,7 @@ def align_image(
     ## crop images
     _crop_src_ims, _crop_ref_ims = [], []
     for _crop in crop_list:
-        _s = tuple([slice(*np.array(_c,dtype=np.int)) for _c in _crop])
+        _s = tuple([slice(*np.array(_c,dtype=np.int32)) for _c in _crop])
         _crop_src_ims.append(_src_im[_s])
         _crop_ref_ims.append(_ref_im[_s])
     ## align two images

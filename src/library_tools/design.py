@@ -697,7 +697,7 @@ Key information:
                 print(f"--- {len(_sel_reg_pb_dic)} probes passed check_dic selection.")
                 
             # initialize kept flag (for two-strands)
-            _kept_flags = -1 * np.ones([2, len(_seq)], dtype=np.int)
+            _kept_flags = -1 * np.ones([2, len(_seq)], dtype=np.int32)
             _kept_pbs = []
             if pick_probe_by_hits:
                 ## after calculating all scores, selecte the best probes
