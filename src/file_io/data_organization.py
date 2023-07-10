@@ -277,6 +277,7 @@ class Data_Organization(pd.DataFrame):
         color_usage_filename:str, 
         data_folder:str, 
         ref_Zstep:int, 
+        readout_names:list=[],
         file_regExp:str=_default_DO_fileRegExp,
         dataType_kwds:dict=color_usage_kwds,
         sel_feature_ind:int=0,
@@ -301,11 +302,16 @@ class Data_Organization(pd.DataFrame):
         # loop through merfish rows
         for _i in np.argsort(_ids):
             _id, _channel, _hyb = _ids[_i], _channels[_i], _hybs[_i]
+            # readouts
+            if len(readout_names) == len(_ids):
+                _readout = readout_names[_i]
+            else:
+                _readout = ''
             # for this hyb, try load the first fov as parameter reference:
             _daxp = DaxProcesser(os.path.join(data_folder, _hyb, _fovs[0]), verbose=False)
             # create
             _row = self._CreateRowSeries(
-                _id, _channel, _hyb, '', len(self)+1, 
+                _id, _channel, _hyb, _readout, len(self)+1, 
                 _color_usage_df, _daxp, 
                 ref_Zstep, file_regExp, self.columns)
             # append
