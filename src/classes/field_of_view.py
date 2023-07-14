@@ -3,18 +3,20 @@ import os, time, h5py, ast
 import numpy as np
 import pickle as pickle
 import multiprocessing as mp
-# fix mp reducer 4GB limit
-from ..parallel_tools.mp_passing import pickle4reducer
-ctx = mp.get_context()
-ctx.reducer = pickle4reducer.Pickle4Reducer()
 # plotting
 #import matplotlib.pyplot as plt
 
 # import other sub-packages
 # import package parameters
-from .. import _correction_folder, _corr_channels,_distance_zxy,\
-    _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames, _image_dtype
-from . import color_usage_kwds, _max_num_seeds, _min_num_seeds, _spot_seeding_th
+from ..default_parameters import default_correction_folder, default_corr_channels, \
+    default_channels, default_pixel_size,default_im_size, \
+    default_num_buffer_frames, default_num_empty_frames
+_sigma_zxy = [2,1.5,1.5]
+_image_dtype = np.uint16
+from ..file_io.data_organization import color_usage_kwds
+_max_num_seeds = 20000
+_min_num_seeds = 10
+_spot_seeding_th = 1000
 
 def __init__():
     print(f"Loading field of view class")
@@ -150,7 +152,7 @@ class Field_of_View():
         if 'correction_folder' in parameters:
             self.correction_folder = parameters['correction_folder']
         else:
-            self.correction_folder = _correction_folder
+            self.correction_folder = default_correction_folder
         if 'drift_folder' in parameters:
             self.drift_folder = parameters['drift_folder']
         else:
@@ -186,20 +188,20 @@ class Field_of_View():
         else:
             self.shared_parameters = {}
         # add parameter keys:      
-        if 'distance_zxy' not in self.shared_parameters:    
-            self.shared_parameters['distance_zxy'] = _distance_zxy
+        if 'pixel_size' not in self.shared_parameters:    
+            self.shared_parameters['pixel_size'] = default_pixel_size
         if 'sigma_zxy' not in self.shared_parameters:
             self.shared_parameters['sigma_zxy'] = _sigma_zxy
         if 'single_im_size' not in self.shared_parameters:
-            self.shared_parameters['single_im_size'] = _image_size
+            self.shared_parameters['single_im_size'] = default_im_size
         if 'num_buffer_frames' not in self.shared_parameters:
-            self.shared_parameters['num_buffer_frames'] = _num_buffer_frames
+            self.shared_parameters['num_buffer_frames'] = default_num_buffer_frames
         if 'num_empty_frames' not in self.shared_parameters:
-            self.shared_parameters['num_empty_frames'] = _num_empty_frames
+            self.shared_parameters['num_empty_frames'] = default_num_empty_frames
         if 'normalization' not in self.shared_parameters:
             self.shared_parameters['normalization'] = False
         if 'corr_channels' not in self.shared_parameters:
-            self.shared_parameters['corr_channels'] = _corr_channels
+            self.shared_parameters['corr_channels'] = default_corr_channels
         # adjust corr_channels
         _kept_corr_channels = []
         for _ch in self.shared_parameters['corr_channels']:

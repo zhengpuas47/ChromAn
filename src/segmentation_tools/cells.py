@@ -1,6 +1,7 @@
 import os, cv2, h5py, copy, math
 import numpy as np
 from scipy.ndimage import grey_dilation
+from ..default_parameters import default_pixel_size
 
 from ..file_io.merlin_params import _read_microscope_json
 
@@ -14,7 +15,6 @@ default_cellpose_kwargs = {
 default_alignment_params = {
     'dialation_size':4,
 }
-default_pixel_sizes = [250,108,108]
 default_Zcoords = np.arange(13)
 default_dna_Zcoords = np.round(np.arange(0,12.5,0.25),2)
 
