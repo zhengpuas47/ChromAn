@@ -1,0 +1,1 @@
+_fasta_ext = ['fa', 'fasta']
