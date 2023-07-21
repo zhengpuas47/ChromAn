@@ -207,7 +207,8 @@ def load_image_base(
     _load_start = time.time()
     # get all channels
     if all_channels is None:
-        _channels = DaxProcesser._FindDaxChannels(filename, verbose=verbose)
+        _xml_filename = filename.replace('.dax', '.xml') # xml file
+        _channels = DaxProcesser._FindDaxChannels(_xml_filename, verbose=verbose)
     else:
         _channels = [str(_ch) for _ch in all_channels]
     # get selected channels
@@ -304,7 +305,7 @@ class DaxProcesser():
 
         # Channels
         if Channels is None:
-            _loaded_channels = DaxProcesser._FindDaxChannels(self.filename, verbose=self.verbose)
+            _loaded_channels = DaxProcesser._FindDaxChannels(self.xml_filename, verbose=self.verbose)
             if _loaded_channels is None:
                 self.channels = default_channels
             else:
@@ -319,6 +320,15 @@ class DaxProcesser():
             self.dapi_channel = str(DapiChannel)
         if RefCorrectionChannel is not None and str(RefCorrectionChannel) in self.channels:
             self.ref_correction_channel = str(DapiChannel)
+        # ImageSize
+        try:
+            self.image_size = DaxProcesser._FindImageSize(
+                self.filename,
+                channels=self.channels,
+                verbose=False,
+                )
+        except:
+            print("Not a typical image setting, image_size not determined.")
         # Log for whether corrections has been done:
         self.correction_log = {_ch:{} for _ch in self.channels}
         self.correction_praram = {}
@@ -719,7 +729,7 @@ class DaxProcesser():
             chromatic_channels=_chromatic_channels,
             correction_folder=correction_folder,
             ref_channel=ref_channel,
-            rescale=rescale,
+            #rescale=rescale,
             verbose=self.verbose,
             **warp_kwargs,
         )
@@ -899,12 +909,18 @@ class DaxProcesser():
 
     def _save_param_to_hdf5(
       self,
-      save_type,
-      hdf5_filename=None, 
-      key=None,
-      overwrite=False,
+      save_type:str,
+      hdf5_filename:str=None, 
+      key:str=None,
+      overwrite:bool=False,
     ):
         """
+        Function to save correction or fitting parameters to hdf5.
+        Inputs:
+            save_type: correction or fitting, str;
+            hdf5_filename: full filename of hdf5 target save file, str;
+            key: save key within this hdf5 file, str;
+            overwrite: whether overwrite existing datasets in hdf5,
         """
         # check save_type
         if save_type in ['correction', 'fitting']:
@@ -945,10 +961,55 @@ class DaxProcesser():
         return
     def _save_base_to_hdf5(
         self,
-    ):
-        """ """
-        pass
-    
+        hdf5_filename:str=None, 
+        overwrite:bool=False,
+        ):
+        """
+        Function to save basic information into hdf5.
+        Inputs:
+            save_type: correction or fitting, str;
+            hdf5_filename: full filename of hdf5 target save file, str;
+            overwrite: whether overwrite existing datasets in hdf5,
+        """
+        # collect all arguments to be saved
+        _sel_attrs = [
+            'filename', 'inf_filename', 'off_filename', 'power_filename', 'xml_filename', # filenames
+            'save_filename', # save information
+            'correction_folder', # correction basic info
+            'channels', 'fiducial_channel', 'dapi_channel', 'ref_correction_channel', # channels
+        ]
+        # get default save information:
+        if hdf5_filename is None:
+            if self.verbose:
+                print("- use default save filename.")
+            hdf5_filename = self.save_filename
+        # get save target file:
+        if not os.path.exists(os.path.dirname(hdf5_filename)):
+            if self.verbose:
+                print(f"Creating folder: {os.path.dirname(hdf5_filename)}")
+            os.makedirs(os.path.dirname(hdf5_filename))
+        # open this file:
+        if self.verbose:
+            if os.path.exists(hdf5_filename):
+                print(f"- saving to existing file: {hdf5_filename}")
+            else:
+                print(f"- saving to new file: {hdf5_filename}")
+        # start saving:
+        _saved_attrs = []
+        with h5py.File(hdf5_filename, 'a') as _f:
+            # loop through attributes
+            for _attr in _sel_attrs:
+                if hasattr(self, _attr):
+                    if _attr not in _f.attrs or _f.attrs[_attr] is None or overwrite:
+                        print(_attr)
+                        _f.attrs[_attr] = getattr(self, _attr)
+                        _saved_attrs.append(_attr)
+        if self.verbose:
+            if len(_saved_attrs) > 0:
+                print(f"-- updated the following basic information: {','.join(_saved_attrs)}")
+            else: 
+                print(f"-- all attributes exist, skip.")
+
     def _save_data_to_hdf5(
         self,
         channel,
@@ -1116,13 +1177,24 @@ class DaxProcesser():
     # Loading:
     def _load_from_hdf5(self):
         pass
-
     @staticmethod
-    def _FindDaxChannels(dax_filename,
+    def _FindShutterStr(
+        xml_filename,
+        ):
+        """Find shutter filename"""
+        _xml_filename = xml_filename
+        try:
+            _hal_info = ET.parse(_xml_filename).getroot()
+            _shutter_filename = _hal_info.findall('illumination/shutters')[0].text
+            return _shutter_filename        
+        except:
+            return None
+    @staticmethod
+    def _FindDaxChannels(xml_filename,
                          verbose=True,
                          ):
         """Find channels"""
-        _xml_filename = dax_filename.replace('.dax', '.xml') # xml file
+        _xml_filename = xml_filename
         try:
             _hal_info = ET.parse(_xml_filename).getroot()
             _shutter_filename = _hal_info.findall('illumination/shutters')[0].text
@@ -1158,32 +1230,86 @@ class DaxProcesser():
             _info_dict[_key] = _value
         return _info_dict
     @staticmethod
+    def _FindTotalNumFrame(inf_filename):
+        return int(DaxProcesser._LoadInfFile(inf_filename)['number of frames'])
+    @staticmethod
     def _FindImageSize(dax_filename, 
                        channels=None,
                        NbufferFrame=default_num_buffer_frames,
                        verbose=True,
                        ):
         _inf_filename = dax_filename.replace('.dax', '.inf') # info file
+        _xml_filename = dax_filename.replace('.dax', '.xml') # xml file
         if channels is None:
-            channels = DaxProcesser._FindDaxChannels(dax_filename)                
-        try:
-            _info_dict = DaxProcesser._LoadInfFile(_inf_filename)
-            # get image shape
-            _dx,_dy = _info_dict['frame dimensions'].split('x')
-            _dx,_dy = int(_dx),int(_dy)
-            # get number of frames in z
-            _n_frame = int(_info_dict['number of frames'])
-            _dz = (_n_frame - 2 * NbufferFrame) / len(channels)
-            if _dz == int(_dz):
-                _dz = int(_dz)
-                _image_size = np.array([_dz,_dx,_dy],dtype=np.int32)
-                if verbose:
-                    print(f"-- single image size: {_image_size}")
-                return _image_size
-            else:
-                raise ValueError("Wrong num_color, should be integer!")
-        except:
-            return np.array(default_im_size)
+            channels = DaxProcesser._FindDaxChannels(_xml_filename)                
+        # get frame information from .inf file
+        _info_dict = DaxProcesser._LoadInfFile(_inf_filename)
+        # get image shape
+        _dx,_dy = _info_dict['frame dimensions'].split('x')
+        _dx,_dy = int(_dx),int(_dy)
+        # get number of frames in z
+        _n_frame = int(_info_dict['number of frames'])
+        _dz = (_n_frame - 2 * NbufferFrame) / len(channels)
+        if _dz == int(_dz):
+            _dz = int(_dz)
+            _image_size = np.array([_dz,_dx,_dy],dtype=np.int32)
+            if verbose:
+                print(f"-- single image size: {_image_size}")
+            return _image_size
+        else:
+            raise ValueError("Wrong num_color, should be integer!")
+    @staticmethod
+    def _FindChannelZpositions(
+        xml_filename,
+        verbose=True,
+        ):
+        import xml.etree.ElementTree as ET
+        """Find Z positions from xml file"""
+        _xml_filename = xml_filename # xml file
+        _inf_filename = xml_filename.replace('.xml', '.inf')
+        #try:
+        _hal_info = ET.parse(_xml_filename).getroot()
+        _zpos_string = _hal_info.findall('focuslock/hardware_z_scan/z_offsets')[0].text
+        _zpos = np.array(_zpos_string.split(','), dtype=np.float32)
+        # get channels
+        _channels = DaxProcesser._FindDaxChannels(_xml_filename, verbose=False)
+        if len(_zpos) != int(DaxProcesser._LoadInfFile(_inf_filename)['number of frames']):
+            raise ValueError("Z position number doesn't match total image length.")
+        if int(len(_zpos) / len(_channels)) != len(_zpos) / len(_channels):
+            raise ValueError("Z position number doesn't match channels.")
+        # otherwise, proceed to parse:
+        _ch_2_zpos = {_ch:[] for _ch in _channels}
+        for _i, _z in enumerate(_zpos):
+            _ch_2_zpos[_channels[_i%len(_channels)]].append(_z)
+        _ch_2_zpos = {_ch:np.array(_zs,) 
+                      for _ch, _zs in _ch_2_zpos.items()}
+        if verbose:
+            print(f"-- z positions for channel: {list(_ch_2_zpos.keys())} found")
+        return _ch_2_zpos
+    @staticmethod
+    def _FindChannelFrames(
+        dax_filename,
+        verbose=True,
+    ):
+        """Find frame number for each channel"""
+        _inf_filename = dax_filename.replace('.dax', '.inf') # info file
+        _xml_filename = dax_filename.replace('.dax', '.xml') # xml file
+        # get total number of frames
+        _total_frame_num = DaxProcesser._FindTotalNumFrame(_inf_filename)
+        # get channels
+        _channels = DaxProcesser._FindDaxChannels(_xml_filename, verbose=False)
+        # check inputs:
+        if int(_total_frame_num / len(_channels)) != _total_frame_num / len(_channels):
+            raise ValueError("Total number of frames doesn't match channels.")
+        # process
+        _ch_2_frames = {_ch:[] for _ch in _channels}
+        for _i in range(_total_frame_num):
+            _ch_2_frames[_channels[_i%len(_channels)]].append(_i)
+        _ch_2_frames = {_ch:np.array(_zs, dtype=np.int32) 
+                        for _ch, _zs in _ch_2_frames.items()}
+        if verbose:
+            print(f"-- Frame inds for channel: {list(_ch_2_frames.keys())} found")
+        return _ch_2_frames
     @staticmethod
     def _LoadSegmentation(segmentation_filename,
                           fov_id=None,
@@ -1301,3 +1427,5 @@ def split_im_by_channels(
     _splitted_ims = [im[_s:_s+single_im_size[0]*_num_colors:_num_colors].copy() for _s in _ch_starts]
 
     return _splitted_ims
+
+# slurm in 

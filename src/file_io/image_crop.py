@@ -41,7 +41,7 @@ class ImageCrop():
         _masks = [(_coords[:,_d] >= self.array[_d,0]) *\
                   (_coords[:,_d] <= self.array[_d,1])
                   for _d in range(self.ndim)]
-        _mask = np.prod(_masks, axis=0).astype(np.bool)
+        _mask = np.prod(_masks, axis=0).astype(bool)
 
         return _mask
 

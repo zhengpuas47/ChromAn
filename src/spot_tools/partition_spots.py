@@ -15,7 +15,7 @@ from .spot_class import Spots3D
 #from ..io_tools.crop import generate_neighboring_crop
 import copy
 
-from ..default_parameters import default_num_threads, default_pixel_sizes, default_search_radius
+from ..default_parameters import default_num_threads, default_pixel_size, default_search_radius
 
 ######################################################################
 # Notes:
@@ -30,7 +30,7 @@ class Spots_Partition():
                  readout_filename:str,
                  fov_id=None,
                  search_radius=default_search_radius,
-                 pixel_sizes=default_pixel_sizes,
+                 pixel_size=default_pixel_size,
                  save_filename=None,
                  make_copy=True,
                  ):
@@ -43,7 +43,7 @@ class Spots_Partition():
         self.image_size = np.shape(segmentation_masks)
         self.fov_id=fov_id
         self.search_radius = int(search_radius)
-        self.pixel_sizes = pixel_sizes
+        self.pixel_size = pixel_size
         # filenames
         self.readout_filename = readout_filename
         self.save_filename = save_filename
@@ -75,7 +75,7 @@ class Spots_Partition():
             # loop through each bit
             for spots, bit in zip(spots_list, _bits):
                 _bit = int(bit)
-                _spots = Spots3D(spots, _bit, self.pixel_sizes)
+                _spots = Spots3D(spots, _bit, self.pixel_size)
                 _labels = self.spots_to_labels(self.segmentation_masks,
                     _spots, self.image_size, self.search_radius, 
                     verbose=verbose)
@@ -241,14 +241,14 @@ def batch_partition_smFISH_spots(
                         bits=None,
                         query_label='Gene', 
                         search_radius=default_search_radius,
-                        pixel_sizes=default_pixel_sizes,
+                        pixel_size=default_pixel_size,
                         save_filename=None,
                         ):
     """
     """
     _partition_cls = Spots_Partition(segmentation_masks,
     readout_filename, fov_id=fov_id, search_radius=search_radius,
-    pixel_sizes=pixel_sizes, save_filename=save_filename)
+    pixel_size=pixel_size, save_filename=save_filename)
     # run
     _df = _partition_cls.run_RNA(spots_list, bits, query_label=query_label)
     # return
@@ -260,7 +260,7 @@ def _batch_partition_spots(
     cand_spots_list, cand_bits, cand_channels,
     cand_spots_savefile, 
     microscope_param_file=None, 
-    search_radius=3, pixel_sizes=default_pixel_sizes,
+    search_radius=3, pixel_size=default_pixel_size,
     make_plot=True,
     overwrite:bool=False,
     debug:bool=False,
@@ -280,7 +280,7 @@ def _batch_partition_spots(
 
         for _bit, _ch, _pts in zip(cand_bits, cand_channels, cand_spots_list):
             # cast spot class
-            _spots = Spots3D(_pts, bits=_bit, channels=_ch, pixel_sizes=pixel_sizes)
+            _spots = Spots3D(_pts, bits=_bit, channels=_ch, pixel_size=pixel_size)
             if microscope_param_file is not None:
                 from ..spot_tools.translating import MicroscopeTranslate_Spots
                 _spots = MicroscopeTranslate_Spots(_spots, microscope_param_file)
@@ -329,7 +329,7 @@ def batch_partition_DNA_spots(
     spots:np.ndarray, spot_bits:np.ndarray, spot_channels:np.ndarray,
     seg_label:np.ndarray, fovcell_2_uid:dict={},
     microscope_param_file=None, 
-    search_radius=3, pixel_sizes=default_pixel_sizes,
+    search_radius=3, pixel_size=default_pixel_size,
     ignore_spots_out_cell=True,
     save=True, save_filename=None,
     make_plot=True, expected_count=60,
@@ -347,7 +347,7 @@ def batch_partition_DNA_spots(
             print(f"- Partition cand_spots for fov:{fov_id}")
             _start_time = time.time()
         # Merge spots list into all_spots
-        _all_spots = Spots3D(spots, bits=spot_bits, channels=spot_channels, pixel_sizes=pixel_sizes)
+        _all_spots = Spots3D(spots, bits=spot_bits, channels=spot_channels, pixel_size=pixel_size)
         # Translate based on microscope.json if specified
         if microscope_param_file is not None:
             from ..spot_tools.translating import MicroscopeTranslate_Spots
@@ -361,7 +361,7 @@ def batch_partition_DNA_spots(
         # convert into DataFrame
         _fov_spots_df = FovSpots3D_2_DataFrame(
             _all_spots, fov_id, cell_ids=_labels, 
-            fovcell_2_uid=fovcell_2_uid, pixel_sizes=pixel_sizes,
+            fovcell_2_uid=fovcell_2_uid, pixel_size=pixel_size,
             ignore_spots_out_cell=ignore_spots_out_cell,
         )
         # save

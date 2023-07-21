@@ -3,18 +3,20 @@ import os, time, h5py, ast
 import numpy as np
 import pickle as pickle
 import multiprocessing as mp
-# fix mp reducer 4GB limit
-from ..parallel_tools.mp_passing import pickle4reducer
-ctx = mp.get_context()
-ctx.reducer = pickle4reducer.Pickle4Reducer()
 # plotting
 #import matplotlib.pyplot as plt
 
 # import other sub-packages
 # import package parameters
-from .. import _correction_folder, _corr_channels,_distance_zxy,\
-    _sigma_zxy,_image_size, _allowed_colors, _num_buffer_frames, _num_empty_frames, _image_dtype
-from . import color_usage_kwds, _max_num_seeds, _min_num_seeds, _spot_seeding_th
+from ..default_parameters import default_correction_folder, default_corr_channels, \
+    default_channels, default_pixel_size,default_im_size, \
+    default_num_buffer_frames, default_num_empty_frames
+_sigma_zxy = [2,1.5,1.5]
+_image_dtype = np.uint16
+from ..file_io.data_organization import color_usage_kwds
+_max_num_seeds = 20000
+_min_num_seeds = 10
+_spot_seeding_th = 1000
 
 def __init__():
     print(f"Loading field of view class")
@@ -150,7 +152,7 @@ class Field_of_View():
         if 'correction_folder' in parameters:
             self.correction_folder = parameters['correction_folder']
         else:
-            self.correction_folder = _correction_folder
+            self.correction_folder = default_correction_folder
         if 'drift_folder' in parameters:
             self.drift_folder = parameters['drift_folder']
         else:
@@ -186,20 +188,20 @@ class Field_of_View():
         else:
             self.shared_parameters = {}
         # add parameter keys:      
-        if 'distance_zxy' not in self.shared_parameters:    
-            self.shared_parameters['distance_zxy'] = _distance_zxy
+        if 'pixel_size' not in self.shared_parameters:    
+            self.shared_parameters['pixel_size'] = default_pixel_size
         if 'sigma_zxy' not in self.shared_parameters:
             self.shared_parameters['sigma_zxy'] = _sigma_zxy
         if 'single_im_size' not in self.shared_parameters:
-            self.shared_parameters['single_im_size'] = _image_size
+            self.shared_parameters['single_im_size'] = default_im_size
         if 'num_buffer_frames' not in self.shared_parameters:
-            self.shared_parameters['num_buffer_frames'] = _num_buffer_frames
+            self.shared_parameters['num_buffer_frames'] = default_num_buffer_frames
         if 'num_empty_frames' not in self.shared_parameters:
-            self.shared_parameters['num_empty_frames'] = _num_empty_frames
+            self.shared_parameters['num_empty_frames'] = default_num_empty_frames
         if 'normalization' not in self.shared_parameters:
             self.shared_parameters['normalization'] = False
         if 'corr_channels' not in self.shared_parameters:
-            self.shared_parameters['corr_channels'] = _corr_channels
+            self.shared_parameters['corr_channels'] = default_corr_channels
         # adjust corr_channels
         _kept_corr_channels = []
         for _ch in self.shared_parameters['corr_channels']:
@@ -1288,7 +1290,7 @@ class Field_of_View():
                     # ids
                     if 'ids' not in _grp:
                         _ids = _grp.create_dataset('ids', (len(_dict['ids']),), dtype='i', data=_dict['ids'])
-                        _ids = np.array(_dict['ids'], dtype=np.int) # save ids
+                        _ids = np.array(_dict['ids'], dtype=np.int32) # save ids
                         _data_attrs.append('ids')
                     elif len(_dict['ids']) != len(_grp['ids']):
                         _change_size_flag.append('id')
@@ -1430,11 +1432,11 @@ class Field_of_View():
                                         self.shared_parameters['allowed_data_types'])
             _region_ids = _type_dic[_data_type]
         else:  
-            if isinstance(_region_ids, int) or isinstance(_region_ids, np.int):
+            if isinstance(_region_ids, int) or isinstance(_region_ids, np.int32):
                 _region_ids = [_region_ids]   
             elif not isinstance(_region_ids, list) and not isinstance(_region_ids, np.ndarray):
                 raise TypeError(f"Wrong input type for region_ids:{_region_ids}")
-            _region_ids = np.array([int(_i) for _i in _region_ids],dtype=np.int)
+            _region_ids = np.array([int(_i) for _i in _region_ids],dtype=np.int32)
         # print
         if _verbose:
             _check_time = time.time()
@@ -1799,7 +1801,7 @@ class Field_of_View():
                 # choose dapi folder
                 if len(_dapi_fds) == 1 or (len(_dapi_fds) > 1 and _dapi_id is None): 
                     _dapi_fd = _dapi_fds[0]
-                elif isinstance(_dapi_id, int) or isinstance(_dapi_id, np.int):
+                elif isinstance(_dapi_id, int) or isinstance(_dapi_id, np.int32):
                     _dapi_fd = _dapi_fds[_dapi_id]
                 else:
                     raise TypeError(f"Wrong input type: {type(_dapi_id)} for _dapi_id.")
@@ -1872,7 +1874,7 @@ class Field_of_View():
         if 'correct_fov_image' not in locals():
             from ..io_tools.load import correct_fov_image
 
-        if isinstance(_bead_id, int) or isinstance(_bead_id, np.int):
+        if isinstance(_bead_id, int) or isinstance(_bead_id, np.int32):
             _ind = int(_bead_id)
         elif isinstance(_bead_id, str):
             for _i, _fd in enumerate(self.annotated_folders):

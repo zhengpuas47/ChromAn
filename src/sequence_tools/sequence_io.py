@@ -81,8 +81,8 @@ def extract_sequence(reg_dicts, genome_reference,
         if _wholechr is None:
             raise ValueError(f"Chromosome: {_chrom} doesn't exist in genome reference.")
         # number of regions
-        _gene_start = np.max([0, np.int(_start-flanking)])
-        _gene_stop = np.min([len(_wholechr), np.int(_stop+flanking)])
+        _gene_start = np.max([0, np.int32(_start-flanking)])
+        _gene_stop = np.min([len(_wholechr), np.int32(_stop+flanking)])
 
         # case 1: resolution specified
         if resolution > 0:
@@ -178,7 +178,7 @@ def generate_flags_for_isoforms(gene_dict, plot_flags=True):
         _mstart = int(_mrna_dict['start'])
         _mend = int(_mrna_dict['end'])
         ## NOTICE: the base-pair at region_end should be included in this region
-        _exon_flag = np.ones(_mend - _mstart+1, dtype=np.int)
+        _exon_flag = np.ones(_mend - _mstart+1, dtype=np.int32)
         # find name
         if 'Name' in _mrna_dict['infos']:
             _mname = _mrna_dict['infos']['Name']
@@ -508,7 +508,7 @@ class RNA_sequence_reader(sequence_reader):
             # find a merged mrna_limit
             merged_start, merged_end = np.min([_l[0] for _l in mrna_limits]), np.max([_l[1] for _l in mrna_limits])
             # generate a merged flag for smallest exon
-            merged_flags = np.ones([merged_end + 1 - merged_start, len(exon_flags)], dtype=np.int) *np.nan
+            merged_flags = np.ones([merged_end + 1 - merged_start, len(exon_flags)], dtype=np.int32) *np.nan
             
             for _i, (_exon_flag, (_mstart,_mend), _mname) in enumerate(zip(exon_flags, mrna_limits, mrna_names)):
                 merged_flags[_mstart-merged_start: _mend+1-merged_start, _i] = _exon_flag
@@ -587,7 +587,7 @@ class RNA_sequence_reader(sequence_reader):
             # find a merged mrna_limit
             merged_start, merged_end = np.min([_l[0] for _l in mrna_limits]), np.max([_l[1] for _l in mrna_limits])
             # generate a merged flag for smallest intron
-            merged_flags = np.ones([merged_end + 1 - merged_start, len(intron_flags)], dtype=np.int) *np.nan
+            merged_flags = np.ones([merged_end + 1 - merged_start, len(intron_flags)], dtype=np.int32) *np.nan
             
             for _i, (_intron_flag, (_mstart,_mend), _mname) in enumerate(zip(intron_flags, mrna_limits, mrna_names)):
                 merged_flags[_mstart-merged_start: _mend+1-merged_start, _i] = _intron_flag

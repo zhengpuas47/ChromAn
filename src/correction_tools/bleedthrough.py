@@ -166,7 +166,7 @@ def check_bleedthrough_pairs(info_list, outlier_sigma=2, keep_per_th=0.95, max_i
     if verbose:
         print(f"- start iteration with outlier_sigma={outlier_sigma:.2f}, keep_percentage={keep_per_th:.2f}")
     _n_iter = 0
-    _kept_flags = np.ones(len(_coords), dtype=np.bool)
+    _kept_flags = np.ones(len(_coords), dtype=bool)
     _flags = []
     while(len(_flags) == 0 or np.mean(_flags) < keep_per_th):
         _n_iter += 1
@@ -178,7 +178,7 @@ def check_bleedthrough_pairs(info_list, outlier_sigma=2, keep_per_th=0.95, max_i
                                                               _intercepts[_kept_flags])):
             # get neighboring center ids
             _nb_ids = np.array([_simplex for _simplex in _tri.simplices.copy()
-                                if _i in _simplex], dtype=np.int)
+                                if _i in _simplex], dtype=np.int32)
             _nb_ids = np.unique(_nb_ids)
             # remove itself
             _nb_ids = _nb_ids[(_nb_ids != _i) & (_nb_ids != -1)]
@@ -201,7 +201,7 @@ def check_bleedthrough_pairs(info_list, outlier_sigma=2, keep_per_th=0.95, max_i
 
         # update _kept_flags
         _updating_inds = np.where(_kept_flags)[0]
-        _kept_flags[_updating_inds] = np.array(_flags, dtype=np.bool)
+        _kept_flags[_updating_inds] = np.array(_flags, dtype=bool)
         if verbose:
             print(f"-- iter: {_n_iter}, kept in this round: {np.mean(_flags):.3f}, total: {np.mean(_kept_flags):.3f} in {time.time()-_start_time:.3f}s")
         if _n_iter > max_iter:
@@ -457,7 +457,7 @@ def Generate_bleedthrough_correction(bleed_folders,
         # calculate inverse matrix for each pixel
         if verbose:
             print(f"-- generating inverse matrix.")
-        _bleed_profiles = np.zeros(np.shape(bld_corr_profile), dtype=np.float)
+        _bleed_profiles = np.zeros(np.shape(bld_corr_profile), dtype=np.float32)
         for _i in range(np.shape(bld_corr_profile)[-2]):
             for _j in range(np.shape(bld_corr_profile)[-1]):
                 if generate_2d:
