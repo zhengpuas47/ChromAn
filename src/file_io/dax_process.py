@@ -399,7 +399,7 @@ class DaxProcesser():
     def _calculate_drift(
         self, 
         RefImage, 
-        FiducialChannel=default_fiducial_channel, 
+        FiducialChannel=None, 
         use_autocorr=True, 
         drift_kwargs={},
         save_attr=True, 
@@ -484,6 +484,7 @@ class DaxProcesser():
                 RefImage, 
                 use_autocorr=use_autocorr, 
                 fiducial_channel=FiducialChannel,
+                all_channels=self.channels,
                 verbose=self.verbose, 
                 **drift_kwargs,
             )
