@@ -751,6 +751,76 @@ class DaxProcesser():
         else:
             return _corrected_ims, _correction_channels
 
+    # generate chromatic functions
+    def _corr_chromatic_functions(self, 
+        correction_channels=None,
+        correction_pf=None, 
+        correction_folder=None,
+        ref_channel=default_ref_channel,
+        save_attrs=True,
+        overwrite=False,
+        ):
+        """Generate chromatic_abbrevation functions for each channel"""
+        from ..correction_tools.chromatic import generate_chromatic_function
+        _total_chromatic_start = time.time()
+        if correction_channels is None:
+            correction_channels = self.loaded_channels
+        _correction_channels = [str(_ch) for _ch in correction_channels 
+            if str(_ch) != getattr(self, 'fiducial_channel', None) and str(_ch) != getattr(self, 'dapi_channel', None)]
+        if self.verbose:
+            print(f"- Generate corr_chromatic_functions for channels: {_correction_channels}")
+        ## if finished ALL, directly return
+        _logs = [self.correction_log[_ch].get('corr_chromatic', False) or self.correction_log[_ch].get('corr_chromatic_function', False)
+            for _ch in _correction_channels]
+        if np.array(_logs).all():
+            if self.verbose:
+                print(f"- Correct chromatic function already finished, skip. ")
+            return 
+        # update _correction_channels based on log
+        _correction_channels = [_ch for _ch, _log in zip(_correction_channels, _logs) if not _log ]
+        if self.verbose:
+            print(f"- Keep channels: {_correction_channels} for corr_chromatic_functions.")
+        ## if not finished, do process
+        if self.verbose:
+            print(f"- Start generating chromatic correction for channels:{_correction_channels}.")
+        if correction_folder is None:
+            correction_folder = self.correction_folder
+        if correction_pf is None:
+            correction_pf = load_correction_profile(
+                'chromatic_constants', _correction_channels,
+                correction_folder=correction_folder,
+                all_channels=self.channels,
+                ref_channel=ref_channel,
+                im_size=self.image_size,
+                verbose=self.verbose,
+            )
+        ## loop through channels to generate functions
+        # init corrected_funcs
+        _image_size = getattr(self, 'image_size')
+        _drift = getattr(self, 'drift', np.zeros(len(_image_size)))
+        _corrected_funcs = []
+        # apply
+        for _ch in _correction_channels:
+            if self.verbose:
+                _chromatic_time = time.time()
+                print(f"-- generate chromatic_shift_function for channel: {_ch}", end=' ')
+            _func = generate_chromatic_function(correction_pf[_ch], _drift)
+            if save_attrs:
+                setattr(self, f"chromatic_func_{_ch}", _func)
+            else:
+                _corrected_funcs.append(_func)
+            if self.verbose:
+                print(f"in {time.time()-_chromatic_time:.3f}s")
+        if self.verbose:
+            print(f"-- finish generating chromatic functions in {time.time()-_total_chromatic_start:.3f}s")
+        if save_attrs:
+            # update log
+            for _ch in _correction_channels:
+                self.correction_log[_ch]['corr_chromatic_function'] = True
+            return 
+        else:
+            return _corrected_funcs
+        
     # Gaussian highpass for high-background images
     def _corr_gaussian_highpass(
         self,                            
@@ -816,7 +886,8 @@ class DaxProcesser():
     def _fit_3D_spots(
         self,
         fit_channels:list=None,
-        seeding_kwargs:dict=dict(),
+        seeding_kwargs_list:list[dict]=None,
+        #seeding_kwargs:dict=dict(),
         fitting_mode:str='cpu',
         fitting_kwargs:dict=dict(),
         normalization:str=None, 
@@ -845,6 +916,9 @@ class DaxProcesser():
             _fit_channels = [str(_ch) for _ch in fit_channels]
         else:
             raise TypeError(f"Wrong input type ({type(fit_channels)}) for fit_channels.")
+        # check seeding_kwargs_lsit and fitting_kwargs_list to match the length 
+        
+        
         _fit_channels = [str(_ch) for _ch in _fit_channels 
             if str(_ch) != getattr(self, 'fiducial_channel', None) \
                 and str(_ch) != getattr(self, 'dapi_channel', None)
@@ -855,6 +929,7 @@ class DaxProcesser():
             and hasattr(self, f"im_{_ch}") 
             for _ch in _fit_channels
         ]
+        
         # modify fitted channels
         _fit_channels = [_ch 
                          for _ch, _flag in zip(_fit_channels, _require_fitting_flags)
@@ -903,11 +978,6 @@ class DaxProcesser():
         return _fit_spots, _fit_channels
 
     # Saving:
-    def _save_to_file(self):
-        """Save processed information into a file"""
-
-
-
     def _save_param_to_hdf5(
       self,
       save_type:str,
@@ -1105,75 +1175,7 @@ class DaxProcesser():
         if save_folder is None:
             pass
     
-    
-    def _corr_chromatic_functions(self, 
-        correction_channels=None,
-        correction_pf=None, 
-        correction_folder=None,
-        ref_channel=default_ref_channel,
-        save_attrs=True,
-        overwrite=False,
-        ):
-        """Generate chromatic_abbrevation functions for each channel"""
-        from ..correction_tools.chromatic import generate_chromatic_function
-        _total_chromatic_start = time.time()
-        if correction_channels is None:
-            correction_channels = self.loaded_channels
-        _correction_channels = [str(_ch) for _ch in correction_channels 
-            if str(_ch) != getattr(self, 'fiducial_channel', None) and str(_ch) != getattr(self, 'dapi_channel', None)]
-        if self.verbose:
-            print(f"- Generate corr_chromatic_functions for channels: {_correction_channels}")
-        ## if finished ALL, directly return
-        _logs = [self.correction_log[_ch].get('corr_chromatic', False) or self.correction_log[_ch].get('corr_chromatic_function', False)
-            for _ch in _correction_channels]
-        if np.array(_logs).all():
-            if self.verbose:
-                print(f"- Correct chromatic function already finished, skip. ")
-            return 
-        # update _correction_channels based on log
-        _correction_channels = [_ch for _ch, _log in zip(_correction_channels, _logs) if not _log ]
-        if self.verbose:
-            print(f"- Keep channels: {_correction_channels} for corr_chromatic_functions.")
-        ## if not finished, do process
-        if self.verbose:
-            print(f"- Start generating chromatic correction for channels:{_correction_channels}.")
-        if correction_folder is None:
-            correction_folder = self.correction_folder
-        if correction_pf is None:
-            correction_pf = load_correction_profile(
-                'chromatic_constants', _correction_channels,
-                correction_folder=correction_folder,
-                all_channels=self.channels,
-                ref_channel=ref_channel,
-                im_size=self.image_size,
-                verbose=self.verbose,
-            )
-        ## loop through channels to generate functions
-        # init corrected_funcs
-        _image_size = getattr(self, 'image_size')
-        _drift = getattr(self, 'drift', np.zeros(len(_image_size)))
-        _corrected_funcs = []
-        # apply
-        for _ch in _correction_channels:
-            if self.verbose:
-                _chromatic_time = time.time()
-                print(f"-- generate chromatic_shift_function for channel: {_ch}", end=' ')
-            _func = generate_chromatic_function(correction_pf[_ch], _drift)
-            if save_attrs:
-                setattr(self, f"chromatic_func_{_ch}", _func)
-            else:
-                _corrected_funcs.append(_func)
-            if self.verbose:
-                print(f"in {time.time()-_chromatic_time:.3f}s")
-        if self.verbose:
-            print(f"-- finish generating chromatic functions in {time.time()-_total_chromatic_start:.3f}s")
-        if save_attrs:
-            # update log
-            for _ch in _correction_channels:
-                self.correction_log[_ch]['corr_chromatic_function'] = True
-            return 
-        else:
-            return _corrected_funcs
+
 
     # Loading:
     def _load_from_hdf5(self):
@@ -1331,6 +1333,78 @@ class DaxProcesser():
                 if fov_id is None:
                     fov_id = list(_f.keys())[0]
                 _seg_label = _f[str(fov_id)]['dna_mask'][:]
+        # return
+        return _seg_label
+    @staticmethod
+    def _RunDapiSegmentation3D(dapi_image:np.ndarray,
+                               fov_id=None,
+                               model_type='nuclei',
+                               use_gpu=True,
+                               segmentation_kwargs:dict=dict(), 
+                               subsampling=False, subsampling_ratio=0.5,
+                               save=False, segmentation_filename='dapi_3d_labels.npy',
+                               verbose=True,
+                               ):
+        """Function to run Cellpose segmentation segmentation for DAPI image"""
+        from cellpose import models
+        from torch.cuda import empty_cache
+        _default_segmentation_kwargs = {
+            'diameter':100,
+            'anisotropy': 4.673, #500nm/107nm, ratio of z-pixel vs x-y pixels
+            'channels':[0,0],
+            'min_size':2000,
+            'do_3D': True,
+            'cellprob_threshold': 0,
+        }
+        _default_segmentation_kwargs.update(segmentation_kwargs)
+        if subsampling:
+            import cv2
+            # subsampled size:
+            _subsampled_sizes = list(dapi_image.shape) 
+            _subsampled_sizes[-2] = int(_subsampled_sizes[-2] * subsampling_ratio)
+            _subsampled_sizes[-1] = int(_subsampled_sizes[-1] * subsampling_ratio)
+            _dapi_image = np.array([cv2.resize(_ly, (_subsampled_sizes[-2], _subsampled_sizes[-1])) 
+                         for _ly in dapi_image])
+            _default_segmentation_kwargs['diameter'] = _default_segmentation_kwargs['diameter'] * subsampling_ratio
+            _default_segmentation_kwargs['anisotropy'] = _default_segmentation_kwargs['anisotropy'] * subsampling_ratio
+        else:
+            _dapi_image = dapi_image
+        # Create cellpose model
+        if verbose:
+            print(f"- run Cellpose segmentation", end=' ')
+            _cellpose_start = time.time()
+        #empty_cache() # empty cache to create new model
+        seg_model = models.CellposeModel(gpu=use_gpu, model_type=model_type)
+        
+        # Run cellpose prediction
+        _seg_label, _, _ = seg_model.eval(np.stack([_dapi_image,_dapi_image], axis=3), 
+                                        *_default_segmentation_kwargs,
+                                        )
+        if subsampling:
+            _seg_label = np.array([cv2.resize(_ly, dapi_image.shape[-2:], 
+                                interpolation=cv2.INTER_NEAREST_EXACT) 
+                                for _ly in _seg_label], dtype=np.int32)
+        if verbose:
+            print(f"in {time.time()-_cellpose_start:.3f}s.")
+        # save
+        if save:
+            if verbose:
+                print(f"-- saving segmentation labels into file: {segmentation_filename}")
+            # save
+        if segmentation_filename.split(os.extsep)[-1] == 'npy':
+            np.save(segmentation_filename, _seg_label)
+        elif segmentation_filename.split(os.extsep)[-1] == 'pkl':
+            pickle.dump(_seg_label, open(segmentation_filename, 'wb'))
+        elif segmentation_filename.split(os.extsep)[-1] == 'hdf5' or segmentation_filename.split(os.extsep)[-1] == 'h5':
+            with h5py.File(segmentation_filename, 'a') as _f:
+                if len(_f.keys()) == 0:
+                    _target = _f
+                else:
+                    if fov_id is None:
+                        fov_id = list(_f.keys())[0]
+                    _target = _f[str(fov_id)]
+                # create
+                _target.create_dataset('dna_mask', data=_seg_label)
         # return
         return _seg_label
 

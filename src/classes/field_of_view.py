@@ -333,7 +333,7 @@ class Field_of_View():
         # get annotated folders by color usage
         if _annotate_folders:
             self.annotated_folders = []
-            for _hyb_fd, _info in self.color_dic.items():
+            for _hyb_fd, _info in self.color_usage_df.iterrows():
                 _matches = [_fd for _fd in self.folders if _hyb_fd == _fd.split(os.sep)[-1]]
                 if len(_matches)==1:
                     self.annotated_folders.append(_matches[0])
