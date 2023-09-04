@@ -2,10 +2,10 @@
 import os, sys, time, json
 import numpy as np
 # local functions and variables
-sys.path.append('../..')
+sys.path.append('..')
 from src.default_parameters import default_slurm_output
 # create
-
+from file_io.data_organization import search_fovs_in_folders, Color_Usage
 
 import argparse
 
@@ -21,6 +21,9 @@ def build_parser():
         help='the index of the fragment of the analysis task to execute')
     parser.add_argument('-a', '--analysis-parameters',
                         help='name of the analysis parameters file to use')
+    parser.add_argument('-c', '--color-usage', type=str,
+                        default='color_usage.csv',
+                        help='name of the color-usage file to use')
     parser.add_argument('-n', '--core-count', type=int,
                         default=4,
                         help='number of CPU cores to use for the analysis')
@@ -50,7 +53,7 @@ def _get_input_path(prompt):
         else:
             return pathString#
 
-class AnalysisTask(object):
+class GenerateAnalysisTask(object):
 
     def __init__(self, 
                  nodes=1, tasks_per_node=1, 
@@ -76,8 +79,28 @@ class AnalysisTask(object):
         #self.job_name = job_name
         self.time_limit = time_limit
 
+    def identify_image_filenames(self, ):
+        # scan subfolders
+        folders, fovs = search_fovs_in_folders(task.dataset)
+        # load color_usage
+        color_usage_full_filename = os.path.join(self.dataset, 'Analysis', self.color_usage)
+        self.color_usage = color_usage_full_filename
+        if os.path.isfile(color_usage_full_filename):
+            color_usage_df = Color_Usage(color_usage_full_filename)
+        else:
+            raise FileExistsError("Color usage file doesn't exist in given path, exit")
+
+        # identify valid folders
+        if hasattr(self, 'hyb_folder') and self.hyb_folder in color_usage_df.index:
+            self.image_filename = os.path.join(self.dataset, self.hyb_folder, fovs[self.fragment_index])
+        else:
+            raise ValueError("Invalid hyb_folder")
+    
     def generate_slurm_script(self, script_filename='submit.sh'):
         """Generate SLURM script with the given command."""
+        # identify image filename
+        if not hasattr(self, 'image_filename'):
+            self.identify_image_filenames()
         
         slurm_header = f"""#!/bin/bash
 #SBATCH --nodes={self.nodes}
@@ -103,7 +126,7 @@ class AnalysisTask(object):
 #SBATCH --account=weissman        # weissman account needed for sabre access
 """         
         # generate command
-        command = f"python ../analysis/{self.analysis_task}.py -a {self.analysis_parameters} -i {self.fragment_index} -d {self.dataset}"
+        command = f"python ./analysis/{self.analysis_task}.py -a {self.analysis_parameters} -c {self.color_usage} -f {self.image_filename}"
         full_script = slurm_header + command + "\n"
 
         with open(script_filename, 'w') as file:
@@ -114,9 +137,7 @@ class AnalysisTask(object):
 
 # Example usage:
 if __name__ == "__main__":
-    
-    #print(args.analysis_task)
-    task = AnalysisTask()
-    
-    #task = AnalysisTask('image_preprocess', nodes=2, tasks_per_node=4, memory='2G', job_name='analysis_task')
+        
+    task = GenerateAnalysisTask()
+    # generate slurm
     task.generate_slurm_script(script_filename="my_job_submit.sh")

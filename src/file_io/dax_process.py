@@ -1,11 +1,15 @@
-import os, re, time, h5py, pickle
+import os, sys, re, time, h5py, pickle, sys
 import numpy as np 
 import xml.etree.ElementTree as ET
+sys.path.append("..")
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
 # default params
-from ..default_parameters import *
+from default_parameters import *
 # usful functions
-from ..correction_tools.load_corrections import load_correction_profile
-from ..spot_tools.spot_class import Spots3D
+from correction_tools.load_corrections import load_correction_profile
+from spot_tools.spot_class import Spots3D
 
 class Reader(object):
     """
@@ -407,7 +411,7 @@ class DaxProcesser():
         overwrite=False,
         ):
         """Calculate drift given reference image"""
-        from ..correction_tools.alignment import align_image
+        from correction_tools.alignment import align_image
         if hasattr(self, 'drift') and hasattr(self, 'drift_flag') and not overwrite:
             if self.verbose:
                 print(f"- Drift already calculated, skip.")
@@ -509,7 +513,7 @@ class DaxProcesser():
         """Apply bleedthrough correction to remove crosstalks between channels
             by a pre-measured matrix"""
         # find correction channels
-        from ..correction_tools.bleedthrough import bleedthrough_correction
+        from correction_tools.bleedthrough import bleedthrough_correction
         if correction_channels is None:
             correction_channels = self.loaded_channels
         _correction_channels = [str(_ch) for _ch in correction_channels 
@@ -562,7 +566,7 @@ class DaxProcesser():
         save_attrs:bool=True,
         )->None:
         """Remove hot pixel by interpolation"""
-        from ..correction_tools.filter import hot_pixel_correction
+        from correction_tools.filter import hot_pixel_correction
         if correction_channels is None:
             correction_channels = self.loaded_channels
         _correction_channels = [str(_ch) for _ch in correction_channels]
@@ -622,7 +626,7 @@ class DaxProcesser():
                            )->None:
         """Apply illumination correction to flatten field-of-view illumination
             by a pre-measured 2D-array"""
-        from ..correction_tools.illumination import illumination_correction
+        from correction_tools.illumination import illumination_correction
         if correction_channels is None:
             correction_channels = self.loaded_channels
         _correction_channels = [str(_ch) for _ch in correction_channels]
@@ -684,7 +688,7 @@ class DaxProcesser():
         """Warp image in 3D to correct for translation and chromatic abbrevation
           this step require at least one of drift or chromatic profile.
           """
-        from ..correction_tools.translate import warp_3D_images
+        from correction_tools.translate import warp_3D_images
         if not corr_chromatic and not corr_drift:
             raise ValueError("At least one of drift or chromatic should be specified")
         # get drift
@@ -702,7 +706,9 @@ class DaxProcesser():
                            and not self.correction_log[_ch].get('corr_drift', False)] # have not corrected
         _chromatic_channels = [_ch for _ch in _correction_channels 
                                if _ch != getattr(self, 'fiducial_channel', None) # not fiducial channel
-                               and not self.correction_log[_ch].get('corr_chromatic', False)] # have not corrected
+                               and not self.correction_log[_ch].get('corr_chromatic', False) # have not corrected
+                               and corr_chromatic # need to specify
+                               ] 
         # skip this if nothing specified
         if len(_drift_channels) == 0 and len(_chromatic_channels) == 0:
             if self.verbose:
@@ -761,7 +767,7 @@ class DaxProcesser():
         overwrite=False,
         ):
         """Generate chromatic_abbrevation functions for each channel"""
-        from ..correction_tools.chromatic import generate_chromatic_function
+        from correction_tools.chromatic import generate_chromatic_function
         _total_chromatic_start = time.time()
         if correction_channels is None:
             correction_channels = self.loaded_channels
@@ -833,7 +839,7 @@ class DaxProcesser():
         save_attrs=True,
         ):
         """Function to apply gaussian highpass for selected channels"""
-        from ..correction_tools.filter import gaussian_highpass_correction
+        from correction_tools.filter import gaussian_highpass_correction
         if correction_channels is None:
             correction_channels = self.loaded_channels
         _correction_channels = [str(_ch) for _ch in correction_channels 
@@ -886,10 +892,11 @@ class DaxProcesser():
     def _fit_3D_spots(
         self,
         fit_channels:list=None,
-        seeding_kwargs_list:list[dict]=None,
+        channel_2_seeding_kwargs:dict=dict(),
         #seeding_kwargs:dict=dict(),
         fitting_mode:str='cpu',
-        fitting_kwargs:dict=dict(),
+        channel_2_seeds:dict=dict(),
+        channel_2_fitting_kwargs:dict=dict(),
         normalization:str=None, 
         normalization_kwargs:dict=dict(),
         overwrite:bool=False,
@@ -909,7 +916,7 @@ class DaxProcesser():
             fitted_channels: list of channels that actually performed fitting.
         """
         # determine channels to fit
-        from ..spot_tools.spot_fitting import SpotFitter
+        from spot_tools.spot_fitting import SpotFitter
         if fit_channels is None:
             _fit_channels = self.loaded_channels
         elif isinstance(fit_channels, list) or isinstance(fit_channels, np.ndarray):
@@ -939,17 +946,25 @@ class DaxProcesser():
             self.fitting_log = {_ch:{} for _ch in self.channels}        
         # start
         for _ch in _fit_channels:
+            # get channel-specific kwargs:
+            _seeding_kwargs = channel_2_seeding_kwargs.get(_ch, dict())
+            _fitting_kwargs = channel_2_fitting_kwargs.get(_ch, dict())
+            _pre_seeds = channel_2_seeds.get(_ch, None) # pre-selected seeds
+            
             if self.verbose and not detailed_verbose:
                 print(f"-- fit spots in channel: {_ch}", end=', ')
                 _fit_start = time.time()
             _fitter = SpotFitter(
                 getattr(self, f"im_{_ch}"),
-                seeding_kwargs,
-                fitting_kwargs,
+                _seeding_kwargs,
+                _fitting_kwargs,
                 detailed_verbose,
             )
-            # seeding
-            _fitter.seeding()
+            # seeding 
+            if not isinstance(_pre_seeds, np.ndarray) or len(_pre_seeds.shape) != 2: # pre-seed has to be 2d array
+                _fitter.seeding()
+            else:
+                _fitter.seeds = _pre_seeds
             # fitting
             if fitting_mode == 'cpu':
                 _fitter.CPU_fitting(

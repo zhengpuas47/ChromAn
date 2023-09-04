@@ -1,5 +1,10 @@
+import os, sys
 import numpy as np
-from ..default_parameters import default_im_size
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
+# relative import 
+from default_parameters import default_im_size
 
 
 class ImageCrop():

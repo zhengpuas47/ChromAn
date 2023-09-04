@@ -1,11 +1,16 @@
 import numpy as np
-import time
+import time, os, sys
 from scipy.ndimage import map_coordinates
-from ..default_parameters import default_correction_folder, default_ref_channel
+
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
+
+from default_parameters import default_correction_folder, default_ref_channel
 
 def warp_3D_images(
     ims, 
-    channels, 
+    corr_channels, 
     corr_drift=True,
     drift=None, 
     drift_channels=None,
@@ -23,9 +28,9 @@ def warp_3D_images(
     from scipy.ndimage import map_coordinates
     _total_warp_start = time.time()
     if verbose:
-        print(f"- Start 3D warpping for channels:{channels}.")
+        print(f"- Start 3D warpping for channels:{corr_channels}.")
     image_size = np.array(ims[0].shape)
-    if len(ims) != len(channels):
+    if len(ims) != len(corr_channels):
         raise IndexError(f"length of warp images and channels doesn't match, exit.")
     # check inputs
     if corr_drift:
@@ -33,12 +38,12 @@ def warp_3D_images(
             raise ValueError(f"drift not given to warp image. ")
         _drift = np.array(drift)
         if drift_channels is None:
-            drift_channels = channels
+            drift_channels = corr_channels
         else:
             drift_channels = list(drift_channels)
     if corr_chromatic:
         if chromatic_channels is None:
-            chromatic_channels = channels
+            chromatic_channels = corr_channels
         else:
             chromatic_channels = list(chromatic_channels)
         # only load channels that do chromatic correction
@@ -49,13 +54,13 @@ def warp_3D_images(
                 chromatic_channels,
                 correction_folder=correction_folder,
                 ref_channel=ref_channel,
-                all_channels=channels,
+                all_channels=list(corr_channels) + [ref_channel],
                 im_size=image_size,
                 verbose=verbose,
             )
     # apply corrections
     _corrected_ims = []
-    for _im, _ch in zip(ims, channels):
+    for _im, _ch in zip(ims, corr_channels):
         _warp_time = time.time()
         # 1. get coordiates to be mapped
         single_im_size = np.array(_im.shape)

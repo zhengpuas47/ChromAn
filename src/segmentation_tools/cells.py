@@ -1,9 +1,14 @@
-import os, cv2, h5py, copy, math
+import os, sys, cv2, h5py, copy, math
 import numpy as np
 from scipy.ndimage import grey_dilation
-from ..default_parameters import default_pixel_size
 
-from ..file_io.merlin_params import _read_microscope_json
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
+
+from default_parameters import default_pixel_size
+
+from file_io.merlin_params import _read_microscope_json
 
 default_cellpose_kwargs = {
     'anisotropy': 1,
@@ -207,8 +212,8 @@ def translate_segmentation(dapi_before, dapi_after, before_to_after_rotation,
                            verbose=True,
                            ):
     """ """
-    from ..correction_tools.alignment import calculate_translation
-    from ..correction_tools.translate import warp_3d_image
+    from correction_tools.alignment import calculate_translation
+    from correction_tools.translate import warp_3d_image
     # calculate drift
     _rot_dapi_after, _rot, _dft = calculate_translation(dapi_before, dapi_after, before_to_after_rotation,)
     # get dimensions

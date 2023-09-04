@@ -1,10 +1,12 @@
-import time, warnings
-
+import time, warnings, os, sys 
 import numpy as np
 from .spot_class import Spots3D
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 _default_seeding_parameters = {
-    'th_seed': 500,
+    'th_seed': 800,
     'max_num_seeds': None,
 }
 _default_fitting_parameters = {
@@ -95,7 +97,7 @@ class SpotFitter(object):
             _kept_spots = _spots
         # normalization
         if normalization == 'local':
-            from ..file_io.image_crop import generate_neighboring_crop
+            from file_io.image_crop import generate_neighboring_crop
             _backs = []
             for _pt in _kept_spots:
                 _crop = generate_neighboring_crop(
@@ -114,7 +116,7 @@ class SpotFitter(object):
             _kept_spots[:,0] = _kept_spots[:,0] / _back
         # save attribute
         if self.verbose:
-            print(f"{len(_spots)} fitted in {time.time()-_fit_time:.3f}s.")
+            print(f"{len(_kept_spots)} fitted in {time.time()-_fit_time:.3f}s.")
         self.spots = _kept_spots
         return
 
@@ -123,7 +125,7 @@ class SpotFitter(object):
     def get_seeds(
         im, 
         max_num_seeds=None, 
-        th_seed=200, 
+        th_seed=500, 
         th_seed_per=95, 
         use_percentile=False,
         sel_center=None, 
@@ -330,15 +332,7 @@ class SpotFitter(object):
             plt.show()
 
         return _background
-
-
-def multi_fit_image(
-        
-):
-    """Function to seed and fit spots in given field of view"""
-
-
-
+    
 
 # fit the entire field of view image
 def fit_fov_image(im, channel, seeds=None, 
@@ -419,7 +413,7 @@ def fit_fov_image(im, channel, seeds=None,
             print(f"normalize total background:{_back:.2f}, ", end='')
         _spots[:,0] = _spots[:,0] / _back
     elif normalize_local:
-        from ..file_io.image_crop import generate_neighboring_crop
+        from file_io.image_crop import generate_neighboring_crop
         _backs = []
         for _pt in _spots:
             _crop = generate_neighboring_crop(_pt[1:4],

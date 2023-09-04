@@ -17,3 +17,7 @@ default_search_radius = 4
 default_correction_folder = r'../data/example_correction_profile/'
 # number of threads
 default_num_threads = 12
+
+
+# default slurm output, specific to WI server
+default_slurm_output = r'/lab/weissman_imaging/puzheng/slurm_reports/ChromAn_Jobs'

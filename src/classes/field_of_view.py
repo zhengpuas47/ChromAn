@@ -1,19 +1,22 @@
 
-import os, time, h5py, ast
+import os, time, h5py, ast, sys
 import numpy as np
 import pickle as pickle
 import multiprocessing as mp
 # plotting
 #import matplotlib.pyplot as plt
 
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
 # import other sub-packages
 # import package parameters
-from ..default_parameters import default_correction_folder, default_corr_channels, \
+from default_parameters import default_correction_folder, default_corr_channels, \
     default_channels, default_pixel_size,default_im_size, \
     default_num_buffer_frames, default_num_empty_frames
 _sigma_zxy = [2,1.5,1.5]
 _image_dtype = np.uint16
-from ..file_io.data_organization import color_usage_kwds
+from file_io.data_organization import color_usage_kwds
 _max_num_seeds = 20000
 _min_num_seeds = 10
 _spot_seeding_th = 1000
@@ -89,7 +92,7 @@ class Field_of_View():
         ## extract hybe folders and field-of-view names
         self.folders = []
         for _fd in self.data_folder:
-            from ..file_io.data_organization import search_fovs_in_folders
+            from file_io.data_organization import search_fovs_in_folders
             _hyb_fds, _fovs = search_fovs_in_folders(_fd, verbose=self.verbose)
             # here only extract folders, assuming fovs don't change
             self.folders += _hyb_fds 
@@ -315,7 +318,7 @@ class Field_of_View():
             _color_filename = self.color_filename
         if _color_format is None:
             _color_format = self.color_format
-        from ..file_io.data_organization import Color_Usage
+        from file_io.data_organization import Color_Usage
         color_usage_filename = os.path.join(self.analysis_folder, f"{_color_filename}{os.extsep}{_color_format}")
         _color_usage_df = Color_Usage(color_usage_filename, verbose=self.verbose)
         # need-based store color_usage_df
@@ -393,7 +396,7 @@ class Field_of_View():
                                   _overwrite=False, 
                                   _verbose=True):
         """Function to load correction profiles in RAM"""
-        from ..correction_tools.load_corrections import load_correction_profile
+        from correction_tools.load_corrections import load_correction_profile
         # determine correction folder
         if _correction_folder is None:
             _correction_folder = self.correction_folder
@@ -727,7 +730,7 @@ class Field_of_View():
         if _verbose:
             print(f"+ load reference image from file:{_ref_filename}")
         if 'correct_fov_image' not in locals():
-            from ..io_tools.load import correct_fov_image
+            from io_tools.load import correct_fov_image
         
         if hasattr(self, f'{_data_type}_ref_im') and not _overwrite:
             if _verbose:
@@ -1775,7 +1778,7 @@ class Field_of_View():
         """Function to load dapi image for fov class"""
         
         if 'correct_fov_image' not in locals():
-            from ..io_tools.load import correct_fov_image
+            from io_tools.load import correct_fov_image
         
         if hasattr(self, 'dapi_im') and not _overwrite:
             if _verbose:
@@ -1872,7 +1875,7 @@ class Field_of_View():
         """
 
         if 'correct_fov_image' not in locals():
-            from ..io_tools.load import correct_fov_image
+            from io_tools.load import correct_fov_image
 
         if isinstance(_bead_id, int) or isinstance(_bead_id, np.int32):
             _ind = int(_bead_id)

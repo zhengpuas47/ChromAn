@@ -1,9 +1,12 @@
-import os, time
+import os, time, sys
 import numpy as np
-from ..default_parameters import *
 
-from..file_io.dax_process import load_image_base
-
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
+# internal imports
+from default_parameters import default_im_size, default_num_buffer_frames,default_num_empty_frames,default_correction_folder,default_channels,default_fiducial_channel
+from file_io.dax_process import load_image_base
 
 
 def _find_boundary(_ct, _radius, _im_size):
@@ -88,8 +91,7 @@ _default_align_fitting_args={
     'max_num_seeds': 200,
 }
 
-
-
+## THIS is broken now
 def align_image(
     src_im:np.ndarray, 
     ref_im:np.ndarray, 
@@ -108,10 +110,7 @@ def align_image(
     detailed_verbose=False,                      
     ):
     """Function to align one image by either FFT or spot_finding"""
-    
-    #from ..io_tools.load import correct_fov_image
-    #from ..spot_tools.fitting import fit_fov_image
-    #from ..spot_tools.fitting import select_sparse_centers
+
     from skimage.registration import phase_cross_correlation
     #print("**", type(src_im), type(ref_im))
     ## check inputs
@@ -197,6 +196,7 @@ def align_image(
             _dft, _error, _phasediff = phase_cross_correlation(_rim, _sim, 
                                                                upsample_factor=precision_fold)
         else:
+            ## TODO: Fix this beads-based drift correction
             if detailed_verbose:
                 print("--- use beads fitting to calculate drift.")
             # source

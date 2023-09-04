@@ -1,5 +1,5 @@
 # import functions from packages
-import os
+import os, sys
 import time 
 import pickle 
 import numpy as np
@@ -7,35 +7,27 @@ import scipy
 import matplotlib.pyplot as plt 
 import multiprocessing as mp 
 
-from ..default_parameters import default_correction_folder, default_ref_channel, default_fiducial_channel, default_im_size, default_channels
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
 # import local variables
-#from .. import _allowed_colors, _image_size, _correction_folder
-#from . import _fiducial_channel
 
 # import local functions
-#from ..io_tools.load import correct_fov_image
-#from ..spot_tools.fitting import fit_fov_image
-#from ..spot_tools.matching import find_paired_centers
-from ..file_io.image_crop import crop_neighboring_area
-
+from file_io.image_crop import crop_neighboring_area
+from default_parameters import default_correction_folder, default_fiducial_channel
+from file_io.dax_process import DaxProcesser
 # required chromatic parameters
 _chromatic_ref_channel='647'
 
-_chromatic_default_correction_args={
-    'correction_folder': default_correction_folder,
-    'single_im_size':default_im_size,
-    'all_channels':default_channels,
-    'bleed_corr':False,
-    'chromatic_corr':False,
-}
 _chromatic_default_drift_args={
-    'fiducial_channel': default_fiducial_channel,
-    'use_autocorr':True,
 }
-_chromatic_default_fitting_args={
-    'th_seed':400,
+_chromatic_default_seeding_args={
+    'th_seed':500,
     'max_num_seeds':300,
     'use_dynamic_th':True,
+}
+_chromatic_default_fitting_args={
+    "init_w":1.5,
 }
 
 
@@ -122,12 +114,10 @@ def Generate_chromatic_abbrevation(chromatic_folder, ref_folder,
                                    ref_channel=_chromatic_ref_channel,
                                    fiducial_channel=default_fiducial_channel,
                                    parallel=True, num_threads=12, 
-                                   start_fov=0, num_images=40,
-                                   correction_args={'correction_folder': default_correction_folder,
-                                                    'single_im_size':default_im_size,
-                                                    'all_channels':default_channels,
-                                                    },
+                                   start_fov=0, num_images=48,
+                                   correction_folder = default_correction_folder,
                                    drift_args={},
+                                   seeding_args={},
                                    fitting_args={},
                                    matching_args={},
                                    crop_size=9, rsq_th=0.9,
@@ -139,25 +129,43 @@ def Generate_chromatic_abbrevation(chromatic_folder, ref_folder,
                                    verbose=True,
                                    ):
     """Generate chromatic abbrevation profile from fitted pair of spots"""
-
+    from file_io.dax_process import load_image_base
     ## 0. inputs
-    _correction_args = {_k:_v for _k,_v in _chromatic_default_correction_args.items()}
-    _correction_args.update(correction_args) # update with input info
+    ## 1. select matched fovs
+    fov_names = [_fl for _fl in os.listdir(chromatic_folder) 
+                if _fl.split('.')[-1]=='dax']
+    ref_fov_names = [_fl for _fl in os.listdir(ref_folder) 
+                    if _fl.split('.')[-1]=='dax']
+    sel_fov_names = [_fl for _fl in sorted(fov_names, key=lambda v:int(v.split('.dax')[0].split('_')[-1])) if _fl in ref_fov_names]
+    sel_fov_names = sel_fov_names[int(start_fov):int(start_fov)+int(num_images)]
+    # load test_image:
+    _test_images, all_channels = load_image_base(os.path.join(chromatic_folder, fov_names[0]), verbose=verbose)
+    single_im_size = np.array(_test_images[0].shape)
+    ## 2. get correction args
+    _correction_args = {
+        'correction_folder': correction_folder,
+        'single_im_size': single_im_size,
+        'all_channels': all_channels,
+    }
     # update illumination correction profile
-    if 'illumination_profile' not in _correction_args:
+    try:
         from .load_corrections import load_correction_profile
         _correction_args['illumination_profile'] = \
             load_correction_profile('illumination', 
                                     corr_channels=[str(ref_channel), 
                                                    str(chromatic_channel), 
                                                    str(fiducial_channel)], 
-                                    correction_folder=_correction_args['correction_folder'], 
-                                    all_channels=_correction_args['all_channels'],
+                                    correction_folder=correction_folder, 
+                                    all_channels=all_channels,
                                     ref_channel=ref_channel, 
-                                    im_size=_correction_args['single_im_size'], 
+                                    im_size=single_im_size, 
                                     verbose=verbose)
+    except:
+        pass
     _drift_args = {_k:_v for _k,_v in _chromatic_default_drift_args.items()}
     _drift_args.update(drift_args) # update with input info
+    _seeding_args = {_k:_v for _k,_v in _chromatic_default_seeding_args.items()}
+    _seeding_args.update(seeding_args) # update with input info
     _fitting_args = {_k:_v for _k,_v in _chromatic_default_fitting_args.items()}
     _fitting_args.update(fitting_args) # update with input info
     
@@ -182,14 +190,6 @@ def Generate_chromatic_abbrevation(chromatic_folder, ref_folder,
         _ca_rsqs = _const_infos['rsquares']    
 
     else:
-        ## 2. select matched fovs
-        fov_names = [_fl for _fl in os.listdir(chromatic_folder) 
-                    if _fl.split('.')[-1]=='dax']
-        ref_fov_names = [_fl for _fl in os.listdir(ref_folder) 
-                        if _fl.split('.')[-1]=='dax']
-        sel_fov_names = [_fl for _fl in sorted(fov_names, key=lambda v:int(v.split('.dax')[0].split('_')[-1])) if _fl in ref_fov_names]
-        sel_fov_names = sel_fov_names[int(start_fov):int(start_fov)+int(num_images)]
-        
         ## 3. prepare args to generate info
 
         # assemble args
@@ -201,6 +201,7 @@ def Generate_chromatic_abbrevation(chromatic_folder, ref_folder,
             fiducial_channel,
             _correction_args,
             _drift_args,
+            _seeding_args,
             _fitting_args,
             matching_args,
             crop_size,
@@ -323,9 +324,10 @@ def Generate_chromatic_abbrevation(chromatic_folder, ref_folder,
 def find_chromatic_spot_pairs(ca_filename:str,
                               ref_filename:str,
                               ca_channel:str,
-                              ref_channel='647', fiducial_channel='488',
+                              ref_channel:str='647', fiducial_channel:str='488',
                               correction_args={},
                               drift_args={},
+                              seeding_args={},
                               fitting_args={},
                               matching_args={},
                               crop_size=9, rsq_th=0.9,
@@ -350,40 +352,72 @@ def find_chromatic_spot_pairs(ca_filename:str,
             print(f"-- directly load from temp_file:{temp_filename}")
         _infos = pickle.load(open(temp_filename,'rb'))
     else:
-        # load chromatic_abbrevated file
-        _ref_ims,_ = correct_fov_image(ref_filename, 
-                                       [ref_channel, fiducial_channel],
-                                       **correction_args, **drift_args, 
-                                       calculate_drift=False, 
-                                       warp_image=False,
-                                       return_drift=False, 
-                                       verbose=verbose)
-        # load reference file and calculate drift
-        _ca_ims, _, _drift = correct_fov_image(ca_filename, 
-                                               [ca_channel, fiducial_channel],
-                                               **correction_args, 
-                                               **drift_args, 
-                                               ref_filename=_ref_ims[1],
-                                               calculate_drift=True, 
-                                               warp_image=False,
-                                               return_drift=True, 
-                                               verbose=verbose)
-        # do fitting
-        _ref_spots = fit_fov_image(_ref_ims[0], ref_channel,
-                                  **fitting_args, verbose=verbose)
-        _ca_spots = fit_fov_image(_ca_ims[0], ca_channel,
-                                  **fitting_args, verbose=verbose)
+        # load reference image
+        _ref_daxp = DaxProcesser(
+            ref_filename, CorrectionFolder=correction_args.get("correction_folder", None),
+            FiducialChannel=fiducial_channel, RefCorrectionChannel=ref_channel,
+            verbose=verbose,
+        )
+        _ref_daxp._load_image(sel_channels=[str(ref_channel), str(fiducial_channel)])
+        _ref_daxp._corr_illumination(
+            correction_channels=[str(ref_channel), str(fiducial_channel)],
+            correction_pf=correction_args.get("illumination_profile", None),
+        )
+        # fitting
+        _ref_daxp._fit_3D_spots(
+            fit_channels=[str(ref_channel)], 
+            channel_2_seeding_kwargs={str(ref_channel):seeding_args},
+            channel_2_fitting_kwargs={str(ref_channel):fitting_args},
+        )
+        # load chromatic_abbrevated image
+        _daxp = DaxProcesser(
+            ca_filename, CorrectionFolder=correction_args.get("correction_folder", None),
+            FiducialChannel=fiducial_channel, RefCorrectionChannel=ref_channel,
+            verbose=verbose,
+        )
+        _daxp._load_image(sel_channels=[str(ca_channel), str(fiducial_channel)])
+        _daxp._corr_illumination(
+            correction_channels=[str(ca_channel), str(fiducial_channel)],
+            correction_pf=correction_args.get("illumination_profile", None),
+        )
+        _daxp._calculate_drift(
+            RefImage=getattr(_ref_daxp, f"im_{fiducial_channel}"),
+            drift_kwargs=drift_args,
+        )
+        _daxp._corr_warpping_drift_chromatic(
+            correction_channels=[str(ca_channel)],
+            corr_drift=True, corr_chromatic=False,
+            ref_channel=ref_channel,
+        )
+        # fitting
+        _daxp._fit_3D_spots(
+            fit_channels=[str(ca_channel)], 
+            channel_2_fitting_kwargs={str(ca_channel):fitting_args},
+            channel_2_seeding_kwargs={str(ref_channel):seeding_args},
+            channel_2_seeds={str(ca_channel):\
+                             getattr(_ref_daxp, f"spots_{ref_channel}")
+                            }
+        )
 
-        # match fitted spots
-        _new_dft, _ca_cts, _ref_cts = find_paired_centers(_ca_spots, 
-                                        _ref_spots, -_drift, 
-                                        **matching_args,                      return_paired_cts=True)
+        # extract spots
+        _ref_spots = getattr(_ref_daxp, f"spots_{ref_channel}")
+        _ca_spots = getattr(_daxp, f"spots_{ca_channel}")
+        
+        from spot_tools.match_spots import find_paired_centers
+        _new_dft, _ca_cts, _ref_cts = find_paired_centers(_ca_spots, _ref_spots,
+                            **matching_args,
+                            return_paired_cts=True,
+                           )
+        
         # loop through each spot, crop
+        from file_io.image_crop import crop_neighboring_area
         _infos = []
         for _ca_ct, _ref_ct in zip(_ca_cts, _ref_cts):
             # crop images
-            _rim = crop_neighboring_area(_ref_ims[0], _ref_ct, crop_size)
-            _cim = crop_neighboring_area(_ca_ims[0], _ca_ct, crop_size)
+            _rim = crop_neighboring_area(getattr(_ref_daxp, f"im_{ref_channel}"), 
+                                         _ref_ct, crop_size)
+            _cim = crop_neighboring_area(getattr(_daxp, f"im_{ca_channel}"), 
+                                         _ca_ct, crop_size)
             # calculate r-square
             _x = np.ravel(_rim)[:,np.newaxis]
             _y = np.ravel(_cim)
@@ -394,7 +428,7 @@ def find_chromatic_spot_pairs(ca_filename:str,
                 _info_dict = {
                     'ref_coord': _ref_ct,
                     'ca_coord': _ca_ct,
-                    'drift': _drift,
+                    'drift': _daxp.drift,
                     'ref_im': _rim,
                     'ca_im': _cim,
                     'rsquare': _rsq,
