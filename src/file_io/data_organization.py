@@ -239,7 +239,27 @@ class Color_Usage(pd.DataFrame):
             return Color_Usage.get_channels(color_usage_df).index(_fiducial_ch)
         else:
             return None
-        
+    @staticmethod
+    def get_imaged_channels(color_usage_df, hyb, ):
+        image_infos = color_usage_df.iloc[color_usage_df.get_hyb_id(hyb)]
+        imaged_channels = []
+        for _channel, _info in image_infos.items():
+            if isinstance(_info, float) and np.isnan(_info):
+                continue
+            elif isinstance(_info, str) and _info.lower() =='nan':
+                continue
+            else:
+                imaged_channels.append(_channel)
+        return imaged_channels
+    @staticmethod
+    def get_valid_channels(color_usage_df, hyb, dataType_kwds=color_usage_kwds,):
+        image_infos = color_usage_df.iloc[color_usage_df.get_hyb_id(hyb)]
+        valid_channels = []
+        for _channel, _info in image_infos.items():
+            if isinstance(_info, str) and _info[0] in list(dataType_kwds.values()):
+                valid_channels.append(_channel)
+        return valid_channels
+    
 ## Create merlin version of data_organization
 class Data_Organization(pd.DataFrame):
     """Class for Data_Organization in MERLin"""
@@ -299,6 +319,7 @@ class Data_Organization(pd.DataFrame):
         _ids, _channels, _hybs = _dataType_2_ids[_merfish_feature], \
             _dataType_2_channels[_merfish_feature], \
             _dataType_2_hybs[_merfish_feature]
+        print(_ids)
         # loop through merfish rows
         for _i in np.argsort(_ids):
             _id, _channel, _hyb = _ids[_i], _channels[_i], _hybs[_i]

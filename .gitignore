@@ -134,3 +134,6 @@ dmypy.json
 
 # vscode modifier
 .vscode/
+
+# sh files
+src/*.sh

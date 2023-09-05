@@ -1085,7 +1085,7 @@ class DaxProcesser():
         with h5py.File(hdf5_filename, 'a') as _f:
             # loop through attributes
             for _attr in _sel_attrs:
-                if hasattr(self, _attr):
+                if hasattr(self, _attr) and getattr(self, _attr) is not None:
                     if _attr not in _f.attrs or _f.attrs[_attr] is None or overwrite:
                         print(_attr)
                         _f.attrs[_attr] = getattr(self, _attr)
@@ -1098,9 +1098,9 @@ class DaxProcesser():
 
     def _save_data_to_hdf5(
         self,
-        channel,
-        save_type,
-        hdf5_filename=None, 
+        channel:str, # one channel
+        save_type:str, # 'spots'|'im'
+        hdf5_filename:str=None, 
         key=None,
         index=None,
         compression='gzip',

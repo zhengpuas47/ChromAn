@@ -13,6 +13,7 @@ sys.path.append(os.path.dirname(SCRIPT_DIR))
 # import local variables
 
 # import local functions
+from spot_tools.match_spots import find_paired_centers
 from file_io.image_crop import crop_neighboring_area
 from default_parameters import default_correction_folder, default_fiducial_channel
 from file_io.dax_process import DaxProcesser
@@ -235,7 +236,7 @@ def Generate_chromatic_abbrevation(chromatic_folder, ref_folder,
         _ref_coords = []
         for _infos in spot_infos:
             for _info in _infos:
-                _shift_dist = _info['ca_coord']+_info['drift'] - _info['ref_coord']
+                _shift_dist = _info['ca_coord'] - _info['ref_coord'] # +_info['drift'] # removed drift because warpped images
                 _ref_coord = (_info['ref_coord'] + _info['ca_coord']) /2
                 # append
                 _shift_dists.append(_shift_dist)
@@ -402,15 +403,13 @@ def find_chromatic_spot_pairs(ca_filename:str,
         # extract spots
         _ref_spots = getattr(_ref_daxp, f"spots_{ref_channel}")
         _ca_spots = getattr(_daxp, f"spots_{ca_channel}")
-        
-        from spot_tools.match_spots import find_paired_centers
+        # pair spots
         _new_dft, _ca_cts, _ref_cts = find_paired_centers(_ca_spots, _ref_spots,
                             **matching_args,
                             return_paired_cts=True,
                            )
         
         # loop through each spot, crop
-        from file_io.image_crop import crop_neighboring_area
         _infos = []
         for _ca_ct, _ref_ct in zip(_ca_cts, _ref_cts):
             # crop images
