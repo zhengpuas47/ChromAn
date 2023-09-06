@@ -1,5 +1,5 @@
 # import functions from packages
-import os
+import os, sys
 import time 
 import numpy as np
 import matplotlib.pyplot as plt 
@@ -7,20 +7,19 @@ import multiprocessing as mp
 from scipy.stats import scoreatpercentile
 from scipy.ndimage import gaussian_filter
 
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
 # import local variables
-#from .. import _allowed_colors, _distance_zxy, _image_size, _correction_folder
-#from ..io_tools.load import correct_fov_image
-from ..file_io.dax_process import load_image_base
-from ..default_parameters import default_im_size, default_channels, default_correction_folder, default_ref_channel
+
+from file_io.dax_process import load_image_base
+from default_parameters import default_im_size, default_channels, default_correction_folder, default_ref_channel
 
 def Generate_illumination_correction(data_folder, 
                                      sel_channels=None, 
-                                     num_threads=12, parallel=True,
-                                     num_images=48,
-                                     single_im_size=default_im_size, 
-                                     all_channels=default_channels,
+                                     num_threads=12, parallel=True, num_images=48,
                                      remove_cap=True, cap_th_per=[5, 90],
-                                     gaussian_filter_size=60, 
+                                     gaussian_filter_size=40, 
                                      save=True, overwrite=False, save_folder=None,
                                      save_prefix='illumination_correction_', 
                                      make_plot=True, verbose=True):
@@ -34,6 +33,21 @@ def Generate_illumination_correction(data_folder,
         """
     ## check inputs
     _total_start = time.time()
+    ## detect dax files
+    _fovs = [_fl for _fl in os.listdir(data_folder) if _fl.split('.')[-1]=='dax']
+    _fovs = [_f for _f in sorted(_fovs, key=lambda v:int(v.split('.dax')[0].split('_')[-1]) )]
+    _num_load = min(num_images, len(_fovs))
+    if len(_fovs) == 0:
+        raise FileNotFoundError("Wrong input folder for images, no image detected.")
+    if verbose:
+        print(f"-- {_num_load} among {len(_fovs)} dax files will be loaded in data_folder: {data_folder}")
+    # get input daxfiles
+    _input_fls = [os.path.join(data_folder, _fl) for _fl in _fovs[:_num_load]]
+    
+    # load test_image:
+    _test_images, all_channels = load_image_base(_input_fls[0], verbose=verbose)
+    single_im_size = np.array(_test_images[0].shape)
+    
     if sel_channels is None:
         sel_channels = all_channels
     # check save folders
@@ -57,14 +71,7 @@ def Generate_illumination_correction(data_folder,
         if verbose:
             print(f"-- start calculating {_sel_channels} illumination profiles")
 
-        ## detect dax files
-        _fovs = [_fl for _fl in os.listdir(data_folder) if _fl.split('.')[-1]=='dax']
-        _fovs = [_f for _f in sorted(_fovs, key=lambda v:int(v.split('.dax')[0].split('_')[-1]) )]
-        _num_load = min(num_images, len(_fovs))
-        if verbose:
-            print(f"-- {_num_load} among {len(_fovs)} dax files will be loaded in data_folder: {data_folder}")
-        # get input daxfiles
-        _input_fls = [os.path.join(data_folder, _fl) for _fl in _fovs[:_num_load]]
+
         # load images
         #_signal_sums = [np.zeros([single_im_size[-2], single_im_size[-1]]) for _c in _sel_channels]
         #_layer_cts = [np.zeros([single_im_size[-2], single_im_size[-1]]) for _c in _sel_channels]
@@ -158,7 +165,7 @@ def _image_to_profile(
     ## step 2: calculate mean profile
     _pfs = []
     for _im, _ch in zip(_ims, sel_channels):
-        _nim = np.array(_im, dtype=np.float)
+        _nim = np.array(_im, dtype=np.float32)
         # remove extreme values if specified
         if remove_cap:
             _limits = [scoreatpercentile(_im, min(cap_th_per)), 

@@ -1,7 +1,11 @@
 
 import numpy as np
-import time
-from ..default_parameters import default_correction_folder, default_ref_channel
+import time, sys, os
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
+
+from default_parameters import default_correction_folder, default_ref_channel
 
 def gaussian_deconvolution(im, gfilt_size=2, niter=1):
     """Gaussian blurred image divided by image itself"""

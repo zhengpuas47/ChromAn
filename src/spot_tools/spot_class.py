@@ -10,7 +10,7 @@ class Spots3D(np.ndarray):
     def __new__(cls, 
                 input_array, 
                 bits=None,
-                pixel_sizes=None,
+                pixel_size=None,
                 channels=None,
                 copy_data=True,
                 intensity_index=0,
@@ -46,7 +46,7 @@ class Spots3D(np.ndarray):
         else:
             obj.channels = channels
         # others
-        obj.pixel_sizes = np.array(pixel_sizes)
+        obj.pixel_size = np.array(pixel_size)
         obj.intensity_index = int(intensity_index)
         obj.coordinate_indices = np.array(coordinate_indices, dtype=np.int32)
         # default parameters
@@ -90,7 +90,7 @@ class Spots3D(np.ndarray):
             # other attributes
             setattr(self, 'bits', getattr(obj, 'bits', None))
             setattr(self, 'channels', getattr(obj, 'channels', None))
-            setattr(self, 'pixel_sizes', getattr(obj, 'pixel_sizes', None))
+            setattr(self, 'pixel_size', getattr(obj, 'pixel_size', None))
             setattr(self, 'intensity_index', getattr(obj, 'intensity_index', None))
             setattr(self, 'coordinate_indices', getattr(obj, 'coordinate_indices', None))
             setattr(self, '_3d_infos', getattr(obj, '_3d_infos', None))
@@ -107,15 +107,15 @@ class Spots3D(np.ndarray):
         else:
             return np.array(self[_coordinate_indices])
     
-    def to_positions(self, pixel_sizes=None):
+    def to_positions(self, pixel_size=None):
         """ convert into 3D spatial positions"""
-        _saved_pixel_sizes = getattr(self, 'pixel_sizes', None)
-        if _saved_pixel_sizes is not None and _saved_pixel_sizes.any():
-            return self.to_coords() * np.array(_saved_pixel_sizes)[np.newaxis,:]
-        elif pixel_sizes is None:
-            raise ValueError('pixel_sizes not given')
+        _saved_pixel_size = getattr(self, 'pixel_size', None)
+        if _saved_pixel_size is not None and _saved_pixel_size.any():
+            return self.to_coords() * np.array(_saved_pixel_size)[np.newaxis,:]
+        elif pixel_size is None:
+            raise ValueError('pixel_size not given')
         else:
-            return self.to_coords() * np.array(pixel_sizes)[np.newaxis,:]
+            return self.to_coords() * np.array(pixel_size)[np.newaxis,:]
 
     def to_intensities(self):
         """ """
@@ -128,7 +128,7 @@ class SpotTuple():
     def __init__(self, 
                  spots_tuple:Spots3D,
                  bits:np.ndarray=None,
-                 pixel_sizes:np.ndarray or list=None,
+                 pixel_size:np.ndarray or list=None,
                  spots_inds=None,
                  tuple_id=None,
                  ):
@@ -145,16 +145,16 @@ class SpotTuple():
             self.bits = spots_tuple.bits[:len(self.spots)]
         else:
             self.bits = bits
-        if pixel_sizes is None:
-            self.pixel_sizes = getattr(self.spots, 'pixel_sizes', None)
+        if pixel_size is None:
+            self.pixel_size = getattr(self.spots, 'pixel_size', None)
         else:
-            self.pixel_sizes = np.array(pixel_sizes)
+            self.pixel_size = np.array(pixel_size)
         
         self.spots_inds = spots_inds
         self.tuple_id = tuple_id
         
     def dist_internal(self):
-        _self_coords = self.spots.to_positions(self.pixel_sizes)
+        _self_coords = self.spots.to_positions(self.pixel_size)
         return pdist(_self_coords)
 
     def intensities(self):
@@ -164,7 +164,7 @@ class SpotTuple():
 
     def centroid_spot(self):
         self.centroid = np.mean(self.spots, axis=0, keepdims=True)
-        self.centroid.pixel_sizes = self.pixel_sizes
+        self.centroid.pixel_size = self.pixel_size
         return self.centroid
 
     def dist_centroid_to_spots(self, spots:Spots3D):
@@ -173,14 +173,14 @@ class SpotTuple():
             _cp = self.centroid_spot()
         else:
             _cp = getattr(self, 'centroid')
-        _centroid_coords = _cp.to_positions(pixel_sizes=self.pixel_sizes)
-        _target_coords = spots.to_positions(pixel_sizes=self.pixel_sizes)
+        _centroid_coords = _cp.to_positions(pixel_size=self.pixel_size)
+        _target_coords = spots.to_positions(pixel_size=self.pixel_size)
         return cdist(_centroid_coords, _target_coords)[0]
 
     def dist_to_spots(self, 
                       spots:Spots3D):
-        _self_coords = self.spots.to_positions(pixel_sizes=self.pixel_sizes)
-        _target_coords = spots.to_positions(pixel_sizes=self.pixel_sizes)
+        _self_coords = self.spots.to_positions(pixel_size=self.pixel_size)
+        _target_coords = spots.to_positions(pixel_size=self.pixel_size)
         return cdist(_self_coords, _target_coords)
 
     def dist_chromosome(self):

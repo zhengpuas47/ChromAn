@@ -1,9 +1,12 @@
-import os, time
+import os, time, sys
 import numpy as np
-from ..default_parameters import *
 
-from..file_io.dax_process import load_image_base
-
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
+# internal imports
+from default_parameters import default_im_size, default_num_buffer_frames,default_num_empty_frames,default_correction_folder,default_channels,default_fiducial_channel
+from file_io.dax_process import load_image_base
 
 
 def _find_boundary(_ct, _radius, _im_size):
@@ -11,7 +14,7 @@ def _find_boundary(_ct, _radius, _im_size):
     for _c, _sz in zip(_ct, _im_size):
         _bds.append([max(_c-_radius, 0), min(_c+_radius, _sz)])
     
-    return np.array(_bds, dtype=np.int)
+    return np.array(_bds, dtype=np.int32)
 
 
 def generate_drift_crops(single_im_size=default_im_size, 
@@ -20,14 +23,14 @@ def generate_drift_crops(single_im_size=default_im_size,
     keywards:
         single_im_size: single image size to generate crops, np.ndarray like;
         coord_sel: selected center coordinate to split image into 4 rectangles, np.ndarray like;
-        drift_size: size of drift crop, int or np.int;
+        drift_size: size of drift crop, int or np.int32;
     returns:
         crops: 4x3x2 np.ndarray. 
     """
     # check inputs
     _single_im_size = np.array(single_im_size)
     if coord_sel is None:
-        coord_sel = np.array(_single_im_size/2, dtype=np.int)
+        coord_sel = np.array(_single_im_size/2, dtype=np.int32)
     if coord_sel[-2] >= _single_im_size[-2] or coord_sel[-1] >= _single_im_size[-1]:
         raise ValueError(f"wrong input coord_sel:{coord_sel}, should be smaller than single_im_size:{single_im_size}")
     if drift_size is None:
@@ -88,8 +91,7 @@ _default_align_fitting_args={
     'max_num_seeds': 200,
 }
 
-
-
+## THIS is broken now
 def align_image(
     src_im:np.ndarray, 
     ref_im:np.ndarray, 
@@ -108,10 +110,7 @@ def align_image(
     detailed_verbose=False,                      
     ):
     """Function to align one image by either FFT or spot_finding"""
-    
-    #from ..io_tools.load import correct_fov_image
-    #from ..spot_tools.fitting import fit_fov_image
-    #from ..spot_tools.fitting import select_sparse_centers
+
     from skimage.registration import phase_cross_correlation
     #print("**", type(src_im), type(ref_im))
     ## check inputs
@@ -183,7 +182,7 @@ def align_image(
     ## crop images
     _crop_src_ims, _crop_ref_ims = [], []
     for _crop in crop_list:
-        _s = tuple([slice(*np.array(_c,dtype=np.int)) for _c in _crop])
+        _s = tuple([slice(*np.array(_c,dtype=np.int32)) for _c in _crop])
         _crop_src_ims.append(_src_im[_s])
         _crop_ref_ims.append(_ref_im[_s])
     ## align two images
@@ -197,6 +196,7 @@ def align_image(
             _dft, _error, _phasediff = phase_cross_correlation(_rim, _sim, 
                                                                upsample_factor=precision_fold)
         else:
+            ## TODO: Fix this beads-based drift correction
             if detailed_verbose:
                 print("--- use beads fitting to calculate drift.")
             # source

@@ -1,5 +1,10 @@
+import os, sys
 import numpy as np
-from ..default_parameters import default_im_size
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
+# relative import 
+from default_parameters import default_im_size
 
 
 class ImageCrop():
@@ -41,7 +46,7 @@ class ImageCrop():
         _masks = [(_coords[:,_d] >= self.array[_d,0]) *\
                   (_coords[:,_d] <= self.array[_d,1])
                   for _d in range(self.ndim)]
-        _mask = np.prod(_masks, axis=0).astype(np.bool)
+        _mask = np.prod(_masks, axis=0).astype(bool)
 
         return _mask
 

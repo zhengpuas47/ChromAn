@@ -1,6 +1,7 @@
-import os, pickle
+import os, pickle, sys
 import numpy as np
-from ..default_parameters import *
+sys.path.append("..")
+from default_parameters import *
 
 
 def load_correction_profile(corr_type, 

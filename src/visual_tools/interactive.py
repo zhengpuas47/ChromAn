@@ -2,7 +2,7 @@
 # Copyright Presidents and Fellows of Harvard College, 2017.
 
 #external packages
-import sys,os,glob
+import sys,os
 import numpy as np
 
 import pickle
@@ -10,8 +10,11 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
 from matplotlib import gridspec # this is the replacement for ImageGrid, contributed by Shiwei Liu
 
-
-from ..spot_tools.bintu_fitting import fast_local_fit, fit_seed_points_base, get_seed_points_base
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
+# internal import
+from spot_tools.bintu_fitting import fast_local_fit, fit_seed_points_base, get_seed_points_base
 
 _default_imshow_parameters = {
     'width_z': 1.,

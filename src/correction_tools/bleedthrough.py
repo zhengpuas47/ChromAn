@@ -1,27 +1,35 @@
 # import functions from packages
-import os
+import os, sys
 import time 
 import pickle 
 import numpy as np
 import scipy
 import matplotlib.pyplot as plt 
 import multiprocessing as mp 
+
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
 # import local variables
-from ..default_parameters import *
+from default_parameters import default_correction_folder, default_ref_channel, default_im_size
 
 # import local functions
-
-from ..file_io.image_crop import crop_neighboring_area
+from file_io.dax_process import DaxProcesser, load_image_base
+from file_io.image_crop import crop_neighboring_area
 from .chromatic import generate_polynomial_data
 
 # default parameters for bleedthrough profiles
-_bleedthrough_channels=['750', '647', '561']
+_bleedthrough_default_channels=['750', '647', '561']
 
-_default_bleedthrough_fitting_args = {
-    'max_num_seeds':500,
-    'th_seed': 300,
+_bleedthrough_default_seeding_args={
+    'th_seed':500,
+    'max_num_seeds':300,
     'use_dynamic_th':True,
 }
+_bleedthrough_default_fitting_args={
+    "init_w":1.5,
+}
+
 
 def check_bleedthrough_info(
     _info, 
@@ -41,8 +49,9 @@ def check_bleedthrough_info(
     return True
 
 def find_bleedthrough_pairs(filename, channel,
-                            corr_channels=_bleedthrough_channels,
-                            fitting_args=_default_bleedthrough_fitting_args, 
+                            corr_channels=_bleedthrough_default_channels,
+                            seeding_args=dict(),
+                            fitting_args=dict(), 
                             intensity_th=1.,
                             crop_size=9, rsq_th=0.81, 
                             check_center_position=True,
@@ -82,27 +91,25 @@ def find_bleedthrough_pairs(filename, channel,
             print(f"-- directly load from saved tempfile in folder: {os.path.dirname(filename)}")
         return _info_dict
         
-    ## 1. load this file
-    from ..file_io.dax_process import load_image_base
-    _ims, _channels = load_image_base(
-        filename, corr_channels, verbose=verbose,
-    )
+    ## 1. load this image
+    _daxp = DaxProcesser(filename)
+    _daxp._load_image(sel_channels=corr_channels)
     ## 2. fit centers for target channel
-    _ref_im = _ims[list(corr_channels).index(_channel)]
-    _tar_channels = [_ch for _ch, _im in zip(corr_channels, _ims) if _ch != _channel]
-    _tar_ims = [_im for _ch, _im in zip(corr_channels, _ims) if _ch != _channel]
-    from ..spot_tools.fitting import fit_fov_image
-    _ref_spots = fit_fov_image(_ref_im, _channel, #normalize_background=True,
-                               **fitting_args, verbose=verbose)
+    _ref_im = getattr(_daxp, f"im_{_channel}")
+    _daxp._fit_3D_spots(fit_channels=[_channel], 
+                        channel_2_seeding_kwargs={_channel:seeding_args},
+                        channel_2_fitting_kwargs={_channel:fitting_args},
+                        )
     # threshold intensities
     #_ref_spots = _ref_spots[_ref_spots[:,0] >= intensity_th]
     ## crop
-    for _ch, _im in zip(_tar_channels, _tar_ims):
+    for _ch in corr_channels:
+        _im = getattr(_daxp, f"im_{_ch}")
         _key = f"{_channel}_to_{_ch}"
         if verbose:
             print(f"--- finding matched bleedthrough pairs for {_key}")
         # loop through centers to crop
-        for _spot in _ref_spots:
+        for _spot in getattr(_daxp, f"spots_{_channel}"):
             _rim = crop_neighboring_area(_ref_im, _spot[1:4], crop_sizes=crop_size)
             _cim = crop_neighboring_area(_im, _spot[1:4], crop_sizes=crop_size)
             # calculate r-square
@@ -110,9 +117,7 @@ def find_bleedthrough_pairs(filename, channel,
             _y = np.ravel(_cim)
             _reg = LinearRegression().fit(_x,_y)        
             _rsq = _reg.score(_x,_y)
-    
             #print(_reg.coef_, _rsq)
-
             _info = {
                 'coord': _spot[1:4],
                 'spot': _spot,
@@ -166,7 +171,7 @@ def check_bleedthrough_pairs(info_list, outlier_sigma=2, keep_per_th=0.95, max_i
     if verbose:
         print(f"- start iteration with outlier_sigma={outlier_sigma:.2f}, keep_percentage={keep_per_th:.2f}")
     _n_iter = 0
-    _kept_flags = np.ones(len(_coords), dtype=np.bool)
+    _kept_flags = np.ones(len(_coords), dtype=bool)
     _flags = []
     while(len(_flags) == 0 or np.mean(_flags) < keep_per_th):
         _n_iter += 1
@@ -178,7 +183,7 @@ def check_bleedthrough_pairs(info_list, outlier_sigma=2, keep_per_th=0.95, max_i
                                                               _intercepts[_kept_flags])):
             # get neighboring center ids
             _nb_ids = np.array([_simplex for _simplex in _tri.simplices.copy()
-                                if _i in _simplex], dtype=np.int)
+                                if _i in _simplex], dtype=np.int32)
             _nb_ids = np.unique(_nb_ids)
             # remove itself
             _nb_ids = _nb_ids[(_nb_ids != _i) & (_nb_ids != -1)]
@@ -201,7 +206,7 @@ def check_bleedthrough_pairs(info_list, outlier_sigma=2, keep_per_th=0.95, max_i
 
         # update _kept_flags
         _updating_inds = np.where(_kept_flags)[0]
-        _kept_flags[_updating_inds] = np.array(_flags, dtype=np.bool)
+        _kept_flags[_updating_inds] = np.array(_flags, dtype=bool)
         if verbose:
             print(f"-- iter: {_n_iter}, kept in this round: {np.mean(_flags):.3f}, total: {np.mean(_kept_flags):.3f} in {time.time()-_start_time:.3f}s")
         if _n_iter > max_iter:
@@ -335,13 +340,13 @@ def interploate_bleedthrough_correction_from_channel(
 
 # Final function to be called to generate bleedthrough correction
 def Generate_bleedthrough_correction(bleed_folders, 
-                                     corr_channels=_bleedthrough_channels, 
+                                     corr_channels=_bleedthrough_default_channels, 
                                      parallel=True, num_threads=12, 
                                      start_fov=1, num_images=40,
-                                     correction_args={'single_im_size':default_im_size,
-                                                      'illumination_corr':False,
-                                                      'chromatic_corr':False},
-                                     fitting_args={}, intensity_th=150.,
+                                     correction_folder=default_correction_folder, 
+                                     seeding_args={},
+                                     fitting_args={}, 
+                                     intensity_th=150.,
                                      crop_size=9, rsq_th=0.81, check_center=True,
                                      fitting_order=2, generate_2d=True,
                                      interpolate_args={},
@@ -354,22 +359,38 @@ def Generate_bleedthrough_correction(bleed_folders,
                                      ):
     """Function to generate bleedthrough profiles """
     ## 0. inputs
-    _fitting_args = {_k:_v for _k,_v in _default_bleedthrough_fitting_args.items()}
+    _seeding_args = {_k:_v for _k,_v in _bleedthrough_default_seeding_args.items()}
+    _seeding_args.update(seeding_args) # update with input info
+    _fitting_args = {_k:_v for _k,_v in _bleedthrough_default_fitting_args.items()}
     _fitting_args.update(fitting_args) # update with input info
     ## 1. savefiles
     if save_folder is None:
         save_folder = bleed_folders[0]
-    
     filename_base = save_name
+    
+    ## 2. select_fov_names
+    fov_names = [_fl for _fl in os.listdir(bleed_folders[0]) 
+                if _fl.split('.')[-1]=='dax']
+    sel_fov_names = [_fl for _fl in sorted(fov_names, key=lambda v:int(v.split('.dax')[0].split('_')[-1]))]
+    sel_fov_names = sel_fov_names[int(start_fov):int(start_fov)+int(num_images)]
+    # load test_image:
+    _test_images, all_channels = load_image_base(os.path.join(bleed_folders[0], fov_names[0]), verbose=verbose)
+    single_im_size = np.array(_test_images[0].shape)
+    ## 2. get correction args
+    _correction_args = {
+        'correction_folder': correction_folder,
+        'single_im_size': single_im_size,
+        'all_channels': all_channels,
+    }
     # add channel info
     for _ch in corr_channels:
         filename_base += f"_{_ch}"
     # add dimension info
     if generate_2d:
-        for _d in correction_args['single_im_size'][-2:]:
+        for _d in _correction_args['single_im_size'][-2:]:
             filename_base += f'_{int(_d)}'
     else:
-        for _d in correction_args['single_im_size']:
+        for _d in _correction_args['single_im_size']:
             filename_base += f'_{int(_d)}'
     saved_profile_filename = os.path.join(save_folder, filename_base+'.npy')
     # check existance
@@ -377,17 +398,13 @@ def Generate_bleedthrough_correction(bleed_folders,
         if verbose:
             print(f"+ bleedthrough correction profiles already exists. direct load the profile")
         _bleed_profiles = np.load(saved_profile_filename, allow_pickle=True)
+
     
     ### not exist: start processing
     else:
         if verbose:
             print(f"+ generating bleedthrough profiles.")
-        ## 2. select_fov_names
-        fov_names = [_fl for _fl in os.listdir(bleed_folders[0]) 
-                    if _fl.split('.')[-1]=='dax']
-        sel_fov_names = [_fl for _fl in sorted(fov_names, key=lambda v:int(v.split('.dax')[0].split('_')[-1]))]
-        sel_fov_names = sel_fov_names[int(start_fov):int(start_fov)+int(num_images)]
-        
+
         ## 3. prepare args to generate info
         # assemble args
         _bleed_args = []
@@ -432,18 +449,18 @@ def Generate_bleedthrough_correction(bleed_folders,
         ## 5. generate_the_whole_profile
         profile_shape = np.concatenate([np.array([len(corr_channels),
                                                  len(corr_channels)]),
-                                       correction_args['single_im_size']])
+                                       _correction_args['single_im_size']])
         
         bld_corr_profile = np.zeros(profile_shape)
         # loop through two images
         for _ref_i, _ref_ch in enumerate(corr_channels):
             for _tar_i, _tar_ch in enumerate(corr_channels):
                 if _ref_ch == _tar_ch:
-                    bld_corr_profile[_tar_i, _ref_i] = np.ones(correction_args['single_im_size'])
+                    bld_corr_profile[_tar_i, _ref_i] = np.ones(_correction_args['single_im_size'])
                 else:
                     _slope_pf, _intercept_pf = interploate_bleedthrough_correction_from_channel(
                         _info_dicts, _ref_ch, _tar_ch, 
-                        single_im_size=correction_args['single_im_size'],
+                        single_im_size=_correction_args['single_im_size'],
                         fitting_order=fitting_order, 
                         save_folder=save_folder,
                         verbose=True, **interpolate_args,
@@ -457,7 +474,7 @@ def Generate_bleedthrough_correction(bleed_folders,
         # calculate inverse matrix for each pixel
         if verbose:
             print(f"-- generating inverse matrix.")
-        _bleed_profiles = np.zeros(np.shape(bld_corr_profile), dtype=np.float)
+        _bleed_profiles = np.zeros(np.shape(bld_corr_profile), dtype=np.float32)
         for _i in range(np.shape(bld_corr_profile)[-2]):
             for _j in range(np.shape(bld_corr_profile)[-1]):
                 if generate_2d:
