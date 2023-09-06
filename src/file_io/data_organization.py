@@ -72,7 +72,21 @@ class Color_Usage(pd.DataFrame):
         self.__dict__.update(color_usage_df.__dict__)
     
     ### TODO: add query functions for color_usage
-    def custom_method(self):
+    def summarize(
+        self,
+        overwrite:bool=True,
+        ):
+        """get a summary of the full color usage, sort by data_type:"""
+        if hasattr(self, 'dataTypeDict') and not overwrite:
+            if self.verbose:
+                print(f"summary already exists, skip.")
+            return
+        dataType_2_infoDict = {}
+        for _data_type, _data_key in color_usage_kwds.items():
+            for _i, _row in self.iterrows():
+                pass
+
+    def query(self, data_type, region_id):
         # define custom method here
         pass
 
