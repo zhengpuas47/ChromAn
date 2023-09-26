@@ -11,7 +11,7 @@ import argparse
 
 def build_parser():
     parser = argparse.ArgumentParser(description='Decode Chromatin data.')
-    
+    # arguments
     parser.add_argument('-t', '--analysis-task',
         help='the name of the analysis task to execute. If no '
              + 'analysis task is provided, all tasks are executed.') # for now you need to specify a task
@@ -26,21 +26,27 @@ def build_parser():
                         help='name of the color-usage file to use')
     parser.add_argument('-n', '--core-count', type=int,
                         default=1,
-                        help='number of CPU cores to use for the analysis')
+                        help='number of CPU cores to use for each task')
     parser.add_argument('--nodes', type=int,
                         default=1,
                         help='number of cluster nodes to allocate jobs')
     parser.add_argument('-o', '--job-output', type=str,
                         default=default_slurm_output, 
                         help='slurm output directory',)
-    parser.add_argument('-g', '--use-gpu', type=bool,
-                        default=False, 
-                        help='whether submit job to GPU node',)
     parser.add_argument('-s', '--script', type=str, 
                         help="directory of output script file", )
-    
+    # boolean
+    parser.add_argument('-g', '--use-gpu', 
+                        default=False, action="store_true",
+                        help='whether submit job to GPU node',)    
+    parser.add_argument('-v', '--verbose', 
+                        default=False, action="store_true",
+                        help='whether print details',)
+    # data_folder    
     parser.add_argument('data_folder', type=str,
                         help='directory where the raw data is stored')
+    
+    
     return parser
 
 
@@ -114,10 +120,10 @@ class GenerateAnalysisTask(object):
         # identify image filename
         if not hasattr(self, 'image_filename'):
             self.identify_image_filenames()
-        
-        slurm_header = f"""#!/bin/bash
+## The following comments are removed to properly excecute on slurm:
 #SBATCH --nodes={self.nodes}
-#SBATCH --ntasks={len(self.image_filenames)}
+#SBATCH --ntasks={len(self.image_filenames)}        
+        slurm_header = f"""#!/bin/bash
 #SBATCH --open-mode=append
 #SBATCH --cpus-per-task={self.core_count}         # Enter number of cores/threads you wish to request
 #SBATCH --job-name=ChromAn_{self.analysis_task}
@@ -125,18 +131,22 @@ class GenerateAnalysisTask(object):
 #SBATCH --output={os.path.join(self.job_output, r'%x_%j.out')}
 #SBATCH --error={os.path.join(self.job_output, r'%x_%j.err')}
 """
+        # Set partitions and accounts
+        _cpu_partition = 'weissman'
+        _cpu_account = 'weissman'
+        _gpu_partition = 'nvidia-2080ti-20'
+        _gpu_account = 'wibrusers'
         # GPU related settings:
         if self.use_gpu:
-            slurm_header += \
-"""SBATCH --gres=gpu:1              # This is needed to actually access a gpu
-#SBATCH --partition=sabre         # partition (queue) to use
-#SBATCH --account=weissman        # weissman account needed for sabre access
-"""
+            _partiton, _account = _gpu_partition, _gpu_account
+            slurm_header += """#SBATCH --gres=gpu:1              # This is needed to actually access a gpu\n"""
         else:
-            slurm_header += \
-"""#SBATCH --partition=weissman         # partition (queue) to use
-#SBATCH --account=weissman        # weissman account needed for sabre access
-"""         
+            _partiton, _account = _cpu_partition, _cpu_account
+            
+        slurm_header += \
+f"""#SBATCH --partition={_partiton} # partition (queue) to use
+#SBATCH --account={_account} # weissman account needed for sabre access
+"""
         # generate command
         full_script = slurm_header
         for _filename in self.image_filenames:
@@ -145,11 +155,12 @@ class GenerateAnalysisTask(object):
 --cpus-per-task={self.core_count} --job-name=ChromAn_{self.analysis_task} \
 --time={self.time_limit} --output={os.path.join(self.job_output, r'%x_%j.out')} \
 --error={os.path.join(self.job_output, r'%x_%j.err')} \
-"""
+"""         
+            # GPU related settings:
             if self.use_gpu:
-                command += f"""--gres=gpu:1 --partition=sabre --account=weissman """
-            else:
-                command += f"""--partition=weissman --account=weissman """
+                command += f"""--gres=gpu:1 """
+            # partition and account
+            command += f"""--partition={_partiton} --account={_account} """         
             # append the rest of command
             command += f"""--wrap="python ./analysis/{self.analysis_task}.py -a {self.analysis_parameters} -c {self.color_usage} -f {_filename}" \
 """

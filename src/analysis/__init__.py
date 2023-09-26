@@ -9,6 +9,8 @@ class AnalysisTask():
         for _arg_name in _args.__dir__():
             if _arg_name[0] != '_':
                 setattr(self, _arg_name, _clean_string_arg(getattr(_args, _arg_name)))
+        # load analysis_parameters
+        #self._load_analysis_parameters()
     
     def _load_analysis_parameters(self):
         if self.analysis_parameters is None:
@@ -16,8 +18,10 @@ class AnalysisTask():
             self.analysis_parameters = dict()
         self.analysis_parameters = load_analyis_parameters(self.analysis_parameters)
         
-        
 def _clean_string_arg(stringIn):
     if stringIn is None:
         return None
-    return stringIn.strip('\'').strip('\"')
+    elif isinstance(stringIn, str):
+        return stringIn.strip('\'').strip('\"')
+    else:
+        return stringIn

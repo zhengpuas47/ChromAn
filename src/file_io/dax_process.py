@@ -1047,8 +1047,9 @@ class DaxProcesser():
         return
     def _save_base_to_hdf5(
         self,
-        hdf5_filename:str=None, 
-        overwrite:bool=False,
+        hdf5_filename:str=None, # full filename of the hdf5 
+        key:str='.', # location to save attrs, by default at the root of the file.
+        overwrite:bool=False, # whether overwrite attrs in the target file
         ):
         """
         Function to save basic information into hdf5.
@@ -1069,6 +1070,11 @@ class DaxProcesser():
             if self.verbose:
                 print("- use default save filename.")
             hdf5_filename = self.save_filename
+        # get default save information:
+        if key is None:
+            if self.verbose:
+                print("- use default save key.")
+            key = "." # root
         # get save target file:
         if not os.path.exists(os.path.dirname(hdf5_filename)):
             if self.verbose:
@@ -1083,12 +1089,14 @@ class DaxProcesser():
         # start saving:
         _saved_attrs = []
         with h5py.File(hdf5_filename, 'a') as _f:
+            # create this group:
+            _g = _f.require_group(key)
             # loop through attributes
             for _attr in _sel_attrs:
                 if hasattr(self, _attr) and getattr(self, _attr) is not None:
-                    if _attr not in _f.attrs or _f.attrs[_attr] is None or overwrite:
+                    if _attr not in _g.attrs or _g.attrs[_attr] is None or overwrite:
                         print(_attr)
-                        _f.attrs[_attr] = getattr(self, _attr)
+                        _g.attrs[_attr] = getattr(self, _attr)
                         _saved_attrs.append(_attr)
         if self.verbose:
             if len(_saved_attrs) > 0:
@@ -1193,8 +1201,10 @@ class DaxProcesser():
 
 
     # Loading:
-    def _load_from_hdf5(self):
-        pass
+    def _load_from_hdf5(self, channel, type, hdf5_filename, key):
+        # TODO: write proper load_from_hdf5
+            pass
+    
     @staticmethod
     def _FindShutterStr(
         xml_filename,
@@ -1422,7 +1432,9 @@ class DaxProcesser():
                 _target.create_dataset('dna_mask', data=_seg_label)
         # return
         return _seg_label
-
+    
+    
+    
 class Writer(object):
     
     def __init__(self, width = None, height = None, **kwds):

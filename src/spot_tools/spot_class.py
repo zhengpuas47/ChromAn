@@ -1,5 +1,7 @@
 import numpy as np
+import pandas as pd
 from scipy.spatial.distance import cdist, pdist
+
 # default params
 _3d_spot_infos = ['height', 'z', 'x', 'y', 'background', 'sigma_z', 'sigma_x', 'sigma_y', 'sin_t', 'sin_p', 'eps']
 _3d_infos = ['z', 'x', 'y']
@@ -185,3 +187,29 @@ class SpotTuple():
 
     def dist_chromosome(self):
         pass
+
+# %% Class to convert spots to pandas DataFrame.
+
+class Spots3DataFrame(pd.DataFrame):
+    
+    def __init__(self, spots=None, filename=None, verbose=True, *args, **kwargs):
+        # initialize DataFrame
+        super().__init__(*args, **kwargs)
+        # check spots and fine name, at least one of them should be given
+        self.spots = spots
+        
+        self.filename = filename
+        self.verbose = verbose
+        # read from file if filename is given
+        if self.filename is not None:
+            self.read_from_file()
+        
+    def read_from_file(self):
+        """Load color_usage"""
+        # read data from file and update the DataFrame
+        if self.verbose:
+            print(f"- load color_usage from file: {self.filename}")
+        color_usage_df = pd.read_csv(self.filename, index_col=0)
+        self.__dict__.update(color_usage_df.__dict__)
+    
+    

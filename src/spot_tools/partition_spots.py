@@ -11,9 +11,9 @@ from tqdm import tqdm
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 ## TODO: fix these internal import 
-from ..figure_tools.plot_partition import plot_cell_spot_counts
-from ..io_tools.spots import FovCell2Spots_2_DataFrame,FovSpots3D_2_DataFrame
-from ..io_tools.parameters import _read_microscope_json
+#from ..figure_tools.plot_partition import plot_cell_spot_counts
+#from ..io_tools.spots import FovCell2Spots_2_DataFrame,FovSpots3D_2_DataFrame
+#from ..io_tools.parameters import _read_microscope_json
 
 from .spot_class import Spots3D
 
@@ -29,7 +29,9 @@ from default_parameters import default_num_threads, default_pixel_size, default_
 ######################################################################
 
 class Spots_Partition():
-    """"""
+    """Class to partition Spots3D into cells
+    Used to match segmentation masks with spots.
+    """
     def __init__(self,
                  segmentation_masks:np.ndarray, 
                  readout_filename:str,

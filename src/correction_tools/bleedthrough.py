@@ -22,7 +22,7 @@ from .chromatic import generate_polynomial_data
 _bleedthrough_default_channels=['750', '647', '561']
 
 _bleedthrough_default_seeding_args={
-    'th_seed':500,
+    'th_seed':1000,
     'max_num_seeds':300,
     'use_dynamic_th':True,
 }
@@ -104,31 +104,32 @@ def find_bleedthrough_pairs(filename, channel,
     #_ref_spots = _ref_spots[_ref_spots[:,0] >= intensity_th]
     ## crop
     for _ch in corr_channels:
-        _im = getattr(_daxp, f"im_{_ch}")
-        _key = f"{_channel}_to_{_ch}"
-        if verbose:
-            print(f"--- finding matched bleedthrough pairs for {_key}")
-        # loop through centers to crop
-        for _spot in getattr(_daxp, f"spots_{_channel}"):
-            _rim = crop_neighboring_area(_ref_im, _spot[1:4], crop_sizes=crop_size)
-            _cim = crop_neighboring_area(_im, _spot[1:4], crop_sizes=crop_size)
-            # calculate r-square
-            _x = np.ravel(_rim)[:,np.newaxis]
-            _y = np.ravel(_cim)
-            _reg = LinearRegression().fit(_x,_y)        
-            _rsq = _reg.score(_x,_y)
-            #print(_reg.coef_, _rsq)
-            _info = {
-                'coord': _spot[1:4],
-                'spot': _spot,
-                'ref_im': _rim,
-                'bleed_im': _cim,
-                'rsquare': _rsq,
-                'slope': _reg.coef_[0],
-                'intercept': _reg.intercept_,
-                'file':filename,
-            }
-            _info_dict[_key].append(_info)
+        if _ch != _channel:
+            _im = getattr(_daxp, f"im_{_ch}")
+            _key = f"{_channel}_to_{_ch}"
+            if verbose:
+                print(f"--- finding matched bleedthrough pairs for {_key}")
+            # loop through centers to crop
+            for _spot in getattr(_daxp, f"spots_{_channel}"):
+                _rim = crop_neighboring_area(_ref_im, _spot[1:4], crop_sizes=crop_size)
+                _cim = crop_neighboring_area(_im, _spot[1:4], crop_sizes=crop_size)
+                # calculate r-square
+                _x = np.ravel(_rim)[:,np.newaxis]
+                _y = np.ravel(_cim)
+                _reg = LinearRegression().fit(_x,_y)        
+                _rsq = _reg.score(_x,_y)
+                #print(_reg.coef_, _rsq)
+                _info = {
+                    'coord': _spot[1:4],
+                    'spot': _spot,
+                    'ref_im': _rim,
+                    'bleed_im': _cim,
+                    'rsquare': _rsq,
+                    'slope': _reg.coef_[0],
+                    'intercept': _reg.intercept_,
+                    'file':filename,
+                }
+                _info_dict[_key].append(_info)
 
     if save_temp:
         for _ch in corr_channels:
@@ -415,6 +416,7 @@ def Generate_bleedthrough_correction(bleed_folders,
                         os.path.join(_folder, _fov),
                         _ch,
                         corr_channels,
+                        _seeding_args,
                         _fitting_args,
                         intensity_th,
                         crop_size,

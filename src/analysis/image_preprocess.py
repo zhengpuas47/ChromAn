@@ -49,14 +49,16 @@ class ImagePreprocessTask(AnalysisTask):
         # apply correction
         ## TODO: add corrections
         # save spots and raw_images
-        daxp._save_base_to_hdf5()
+        daxp._save_base_to_hdf5(hdf5_filename=_save_filename, key=hyb_folder)
         # fit spots
         daxp._fit_3D_spots(**_fitting_params)
         # save spots and image
         for _channel in daxp.channels:
-            daxp._save_data_to_hdf5(channel=_channel, save_type='im')
+            daxp._save_data_to_hdf5(hdf5_filename=_save_filename, key=f"{hyb_folder}/{_channel}/im",
+                                    channel=_channel, save_type='im')
             if hasattr(daxp, f"spots_{_channel}"):
-                daxp._save_data_to_hdf5(channel=_channel, save_type='spots')
+                daxp._save_data_to_hdf5(hdf5_filename=_save_filename, key=f"{hyb_folder}/{_channel}/spots",
+                                        channel=_channel, save_type='spots')
         
         return
         
@@ -64,4 +66,4 @@ if __name__ == '__main__':
     # run
     _task = ImagePreprocessTask()
     
-    
+# c
