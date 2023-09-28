@@ -31,7 +31,7 @@ def load_correction_profile(corr_type,
         if _channel not in _all_channels:
             raise ValueError(f"Wrong input channel:{_channel}, should be one of {_all_channels}")
     _ref_channel = str(ref_channel).lower()
-    if _ref_channel not in _all_channels:
+    if corr_type in ['chromatic', 'chromatic_constants'] and _ref_channel not in _all_channels:
         raise ValueError(f"Wrong input ref_channel:{_ref_channel}, should be one of {_all_channels}")
 
     ## start loading file

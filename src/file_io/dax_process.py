@@ -324,6 +324,8 @@ class DaxProcesser():
             self.dapi_channel = str(DapiChannel)
         if RefCorrectionChannel is not None and str(RefCorrectionChannel) in self.channels:
             self.ref_correction_channel = str(DapiChannel)
+        elif RefCorrectionChannel is None and len(self.channels) > 1:
+            self.ref_correction_channel = str(self.channels[1])
         # ImageSize
         try:
             self.image_size = DaxProcesser._FindImageSize(
@@ -533,6 +535,7 @@ class DaxProcesser():
         _corrected_ims = bleedthrough_correction(
             [getattr(self, f"im_{_ch}") for _ch in _correction_channels], 
             _correction_channels,
+            ref_channel=getattr(self, 'ref_correction_channel', None),
             correction_pf=correction_pf,
             correction_folder=correction_folder,
             rescale=rescale,
@@ -762,7 +765,7 @@ class DaxProcesser():
         correction_channels=None,
         correction_pf=None, 
         correction_folder=None,
-        ref_channel=default_ref_channel,
+        ref_channel=None,
         save_attrs=True,
         overwrite=False,
         ):
@@ -784,6 +787,9 @@ class DaxProcesser():
             return 
         # update _correction_channels based on log
         _correction_channels = [_ch for _ch, _log in zip(_correction_channels, _logs) if not _log ]
+        # ref channel
+        if ref_channel is None:
+            ref_channel = getattr(self, 'ref_correction_channel', default_ref_channel)
         if self.verbose:
             print(f"- Keep channels: {_correction_channels} for corr_chromatic_functions.")
         ## if not finished, do process

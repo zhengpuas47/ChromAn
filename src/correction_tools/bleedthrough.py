@@ -467,8 +467,10 @@ def Generate_bleedthrough_correction(bleed_folders,
                         save_folder=save_folder,
                         verbose=True, **interpolate_args,
                     )
+                    # dont save the profile if slope is always larger than 1
+                    if np.mean(_slope_pf) > 1.:
+                        continue                        
                     bld_corr_profile[_tar_i, _ref_i] = _slope_pf
-                    
 
         # compress to 2d
         if generate_2d:
@@ -500,7 +502,7 @@ def bleedthrough_correction(
     channels,
     correction_pf=None,
     correction_folder=default_correction_folder,
-    ref_channel=default_ref_channel,
+    ref_channel=None,
     rescale=True,
     verbose=True,
 ):
