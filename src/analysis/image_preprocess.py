@@ -20,6 +20,7 @@ class ImagePreprocessTask(AnalysisTask):
         
         # get params
         _loading_params = self.analysis_parameters.get('loading_params', dict()) # kewargs format
+        _correction_params = self.analysis_parameters.get('correction_params', dict()) # kewargs format
         _fitting_params = self.analysis_parameters.get('fitting_params', dict()) # kewargs format
         # get output
         _save_folder = self.analysis_parameters.get('save_folder', os.path.dirname(self.image_filename))
@@ -47,6 +48,7 @@ class ImagePreprocessTask(AnalysisTask):
         # load image
         daxp._load_image()
         # apply correction
+        #daxp._apply_corrections(**_correction_params)
         ## TODO: add corrections
         # save spots and raw_images
         daxp._save_base_to_hdf5(hdf5_filename=_save_filename, key=hyb_folder)
