@@ -6,7 +6,8 @@ sys.path.append("..")
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 # default params
-from default_parameters import *
+#from default_parameters import *
+from default_parameters import default_num_buffer_frames,default_num_empty_frames,default_channels,default_ref_channel
 # usful functions
 from correction_tools.load_corrections import load_correction_profile
 from spot_tools.spot_class import Spots3D
@@ -337,6 +338,7 @@ class DaxProcesser():
                 )
         except:
             print("Not a typical image setting, image_size not determined.")
+            raise Warning("Not a typical image setting, image_size not determined, auto-partition of channels are not possible. ")
         # Log for whether corrections has been done:
         self.correction_log = {_ch:{} for _ch in self.channels}
         self.correction_praram = {}
@@ -362,7 +364,7 @@ class DaxProcesser():
         """
         # init loaded channels
         if not hasattr(self, 'loaded_channels'):
-            setattr(self, 'loaded_channels', [])
+            self.loaded_channels = []
         # get selected channels
         if sel_channels is None:
             _sel_channels = self.channels
@@ -1440,7 +1442,28 @@ class DaxProcesser():
                 _target.create_dataset('dna_mask', data=_seg_label)
         # return
         return _seg_label
-    
+    @classmethod
+    def RunCorrection(daxp, correction_params:dict,):
+        """Function to systematically run correction"""
+        # check correction_params
+        _default_correction_params = {
+            'correction_folder':None,
+            'correction_channels':None,
+            'corr_bleed':True,
+            'corr_illumination':True,
+            'corr_chromatic':True,
+            'corr_hotpixel':True,
+            'warp_image':True,
+        }
+        _default_correction_params.update(correction_params)
+        # check correction_folder
+        if _default_correction_params['correction_folder'] is None:
+            if daxp.correction_folder is None:
+                raise ValueError("No correction_folder specified.")
+            else:
+                _default_correction_params['correction_folder'] = daxp.correction_folder
+        # check correction_channels
+        
     
     
 class Writer(object):
