@@ -500,6 +500,7 @@ def Generate_bleedthrough_correction(bleed_folders,
 def bleedthrough_correction(
     ims, 
     channels,
+    corr_channels=None,
     correction_pf=None,
     correction_folder=default_correction_folder,
     ref_channel=None,
@@ -515,6 +516,8 @@ def bleedthrough_correction(
     image_size = np.array(ims[0].shape)
     if len(ims) != len(channels):
         raise IndexError(f"length of bleedthrough images and channels doesn't match, exit.")
+    if corr_channels is None:
+        corr_channels = channels
     # load correction_pf if not given
     if correction_pf is None:
         from .load_corrections import load_correction_profile

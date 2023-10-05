@@ -322,6 +322,8 @@ class DaxProcesser():
             self.fiducial_channel = str(FiducialChannel)
         if DapiChannel is not None and str(DapiChannel) in self.channels:
             self.dapi_channel = str(DapiChannel)
+        elif DapiChannel is None and default_dapi_channel in self.channels:
+            self.dapi_channel = str(default_dapi_channel)
         if RefCorrectionChannel is not None and str(RefCorrectionChannel) in self.channels:
             self.ref_correction_channel = str(DapiChannel)
         elif RefCorrectionChannel is None and len(self.channels) > 1:
@@ -518,9 +520,9 @@ class DaxProcesser():
         from correction_tools.bleedthrough import bleedthrough_correction
         if correction_channels is None:
             correction_channels = self.loaded_channels
+        # remove dapi channel:
         _correction_channels = [str(_ch) for _ch in correction_channels 
-            if str(_ch) != getattr(self, 'fiducial_channel', None) \
-                and str(_ch) != getattr(self, 'dapi_channel', None)
+            if str(_ch) != getattr(self, 'dapi_channel', None)
             ]
         ## if finished ALL, directly return
         _logs = [self.correction_log[_ch].get('corr_bleedthrough', False) for _ch in _correction_channels]
