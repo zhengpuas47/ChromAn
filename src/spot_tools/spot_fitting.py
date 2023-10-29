@@ -21,6 +21,7 @@ class SpotFitter(object):
         image, 
         seeding_parameters=dict(),
         fitting_parameters=dict(), 
+        stringent=True,
         verbose=True,
         ):
         """Class of spot fitting"""
@@ -30,6 +31,7 @@ class SpotFitter(object):
         self.seeding_parameters.update(seeding_parameters)
         self.fitting_parameters = _default_fitting_parameters
         self.fitting_parameters.update(fitting_parameters)
+        self.stringent = stringent
         self.verbose = verbose
         return
 
@@ -81,6 +83,7 @@ class SpotFitter(object):
         _fitter = iter_fit_seed_points(
             self.image, self.seeds.to_coords().T, 
             #init_w=init_sigma, weight_sigma=weight_sigma,
+            stringent=self.stringent,
             **_fitting_kwargs,
         )    
         # fit

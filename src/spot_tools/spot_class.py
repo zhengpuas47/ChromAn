@@ -8,7 +8,10 @@ _3d_infos = ['z', 'x', 'y']
 _spot_coord_inds = [_3d_spot_infos.index(_info) for _info in _3d_infos]
 
 class Spots3D(np.ndarray):
-    """Class for fitted spots in 3D"""
+    """Class for fitted spots in 3D
+    This class is a derivative of numpy.ndarray, which also included a couple of functions
+    to calculate spatial-distance, intensities etc.
+    """
     def __new__(cls, 
                 input_array, 
                 bits=None,

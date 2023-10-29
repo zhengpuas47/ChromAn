@@ -864,7 +864,7 @@ def fast_fit_big_image(im,centers_zxy,radius_fit = 4,avoid_neigbors=True,recente
 class iter_fit_seed_points():
     def __init__(self,im,centers,radius_fit=5,min_delta_center=1.,max_delta_center=2.5,
                  n_max_iter = 10,max_dist_th=0.1,
-                 min_w=0.5, max_w=4, init_w=1.5):
+                 min_w=0.5, max_w=4, init_w=1.5, stringent=True):
         """
         Given a set of seeds <centers> in a 3d image <im> iteratively 3d gaussian fit around the seeds (in order of brightness) 
         and subtract the gaussian signal.
@@ -891,6 +891,7 @@ class iter_fit_seed_points():
         self.min_w = min_w
         self.max_w = max_w
         self.init_w = init_w
+        self.stringent = stringent
                     
     def firstfit(self):
         """
@@ -909,37 +910,74 @@ class iter_fit_seed_points():
             centers_ = self.centers
             self.gparms = []
             for ic,(zc,xc,yc) in enumerate(centers_):
-                z_keep,x_keep,y_keep = int(zc)+self.zb,int(xc)+self.xb,int(yc)+self.yb
-                z_keep,x_keep,y_keep = in_dim(z_keep,x_keep,y_keep,self.sz,self.sx,self.sy)
-                
-                X_full = np.array([z_keep,x_keep,y_keep],dtype=int)
-                center = [zc,xc,yc]
-                z_keep,x_keep,y_keep = closest_faster(X_full.T,ic,self.centers_tree,rsearch = self.radius_fit*2)
-                
-                X = np.array([z_keep,x_keep,y_keep])
-                im_ = self.im[z_keep,x_keep,y_keep]
-                
-                self.gparms
-                
-                obj = GaussianFit(im_,X,center=center,delta_center=self.min_delta_center,
-                                  min_w=self.min_w, max_w=self.max_w, init_w=self.init_w)
-                obj.fit()
-                
-                self.gparms.append([im_,X,center])
-                n_p = len(obj.p)
-                self.success.append(obj.success)
-                if obj.success:
-                    self.ps.append(obj.p)
-                    self.centers_fit.append(obj.center)
-                    z_keep,x_keep,y_keep = X_full
-                    obj.x,obj.y,obj.z = X_full
-                    im_rec = obj.get_im()
-                    self.ims_rec.append(im_rec)
-                    self.im_subtr[z_keep,x_keep,y_keep] -= im_rec
+                if self.stringent:
+                    try:
+                        z_keep,x_keep,y_keep = int(zc)+self.zb,int(xc)+self.xb,int(yc)+self.yb
+                        z_keep,x_keep,y_keep = in_dim(z_keep,x_keep,y_keep,self.sz,self.sx,self.sy)
+                        
+                        X_full = np.array([z_keep,x_keep,y_keep],dtype=int)
+                        center = [zc,xc,yc]
+                        z_keep,x_keep,y_keep = closest_faster(X_full.T,ic,self.centers_tree,rsearch = self.radius_fit*2)
+                        
+                        X = np.array([z_keep,x_keep,y_keep])
+                        im_ = self.im[z_keep,x_keep,y_keep]
+                        
+                        self.gparms
+                        
+                        obj = GaussianFit(im_,X,center=center,delta_center=self.min_delta_center,
+                                        min_w=self.min_w, max_w=self.max_w, init_w=self.init_w)
+                        obj.fit()
+                        
+                        self.gparms.append([im_,X,center])
+                        n_p = len(obj.p)
+                        self.success.append(obj.success)
+                        if obj.success:
+                            self.ps.append(obj.p)
+                            self.centers_fit.append(obj.center)
+                            z_keep,x_keep,y_keep = X_full
+                            obj.x,obj.y,obj.z = X_full
+                            im_rec = obj.get_im()
+                            self.ims_rec.append(im_rec)
+                            self.im_subtr[z_keep,x_keep,y_keep] -= im_rec
+                        else:
+                            self.ims_rec.append(np.nan)
+                            self.ps.append([np.nan]*n_p)
+                            self.centers_fit.append([np.nan]*3)
+                    except RuntimeWarning:
+                        break
                 else:
-                    self.ims_rec.append(np.nan)
-                    self.ps.append([np.nan]*n_p)
-                    self.centers_fit.append([np.nan]*3)
+                    z_keep,x_keep,y_keep = int(zc)+self.zb,int(xc)+self.xb,int(yc)+self.yb
+                    z_keep,x_keep,y_keep = in_dim(z_keep,x_keep,y_keep,self.sz,self.sx,self.sy)
+                    
+                    X_full = np.array([z_keep,x_keep,y_keep],dtype=int)
+                    center = [zc,xc,yc]
+                    z_keep,x_keep,y_keep = closest_faster(X_full.T,ic,self.centers_tree,rsearch = self.radius_fit*2)
+                    
+                    X = np.array([z_keep,x_keep,y_keep])
+                    im_ = self.im[z_keep,x_keep,y_keep]
+                    
+                    self.gparms
+                    
+                    obj = GaussianFit(im_,X,center=center,delta_center=self.min_delta_center,
+                                    min_w=self.min_w, max_w=self.max_w, init_w=self.init_w)
+                    obj.fit()
+                    
+                    self.gparms.append([im_,X,center])
+                    n_p = len(obj.p)
+                    self.success.append(obj.success)
+                    if obj.success:
+                        self.ps.append(obj.p)
+                        self.centers_fit.append(obj.center)
+                        z_keep,x_keep,y_keep = X_full
+                        obj.x,obj.y,obj.z = X_full
+                        im_rec = obj.get_im()
+                        self.ims_rec.append(im_rec)
+                        self.im_subtr[z_keep,x_keep,y_keep] -= im_rec
+                    else:
+                        self.ims_rec.append(np.nan)
+                        self.ps.append([np.nan]*n_p)
+                        self.centers_fit.append([np.nan]*3)          
+                        
                 
         self.im_add = np.array(self.im_subtr)
         

@@ -30,6 +30,9 @@ def build_parser():
     parser.add_argument('--nodes', type=int,
                         default=1,
                         help='number of cluster nodes to allocate jobs')
+    parser.add_argument('-m', '--memory', type=str,
+                        default='20gb',
+                        help='total memory usage')
     parser.add_argument('-o', '--job-output', type=str,
                         default=default_slurm_output, 
                         help='slurm output directory',)
@@ -65,7 +68,7 @@ class GenerateAnalysisTask(object):
 
     def __init__(self, 
                  tasks_per_node=1, 
-                 memory='12gb', time_limit='3:00:00'):
+                 time_limit='3:00:00'):
         # parse analysis 
         parser = build_parser()
         args, argv = parser.parse_known_args()
@@ -74,7 +77,6 @@ class GenerateAnalysisTask(object):
             if _arg_name[0] != '_':
                 setattr(self, _arg_name, getattr(args, _arg_name))
         self.tasks_per_node = tasks_per_node
-        self.memory = memory
         self.time_limit = time_limit
         # default shell script name:
         if not hasattr(self, 'script') or self.script is None:
@@ -132,20 +134,20 @@ class GenerateAnalysisTask(object):
 #SBATCH --error={os.path.join(self.job_output, r'%x_%j.err')}
 """
         # Set partitions and accounts
-        _cpu_partition = 'weissman'
-        _cpu_account = 'weissman'
-        _gpu_partition = 'nvidia-2080ti-20'
-        _gpu_account = 'wibrusers'
+        _cpu_partition = 'weissman' # 20
+        _cpu_account = 'weissman' # 'wibrusers' 
+        _gpu_partition = 'nvidia-2080ti-20' # 'sabre' #'nvidia-A4000-20' #
+        _gpu_account = 'wibrusers' # 'weissman' # 
         # GPU related settings:
         if self.use_gpu:
             _partiton, _account = _gpu_partition, _gpu_account
-            slurm_header += """#SBATCH --gres=gpu:1              # This is needed to actually access a gpu\n"""
+            #slurm_header += """#SBATCH --gres=gpu:1              # This is needed to actually access a gpu\n"""
         else:
             _partiton, _account = _cpu_partition, _cpu_account
-            
+        # for the header, always use cpu partition to submit jobs
         slurm_header += \
-f"""#SBATCH --partition={_partiton} # partition (queue) to use
-#SBATCH --account={_account} # weissman account needed for sabre access
+f"""#SBATCH --partition={_cpu_partition} # partition (queue) to use
+#SBATCH --account={_cpu_account} # weissman account needed for sabre access
 """
         # generate command
         full_script = slurm_header
@@ -153,6 +155,7 @@ f"""#SBATCH --partition={_partiton} # partition (queue) to use
             command = f"""sbatch \
 --nodes={1} --ntasks={1} --open-mode=append \
 --cpus-per-task={self.core_count} --job-name=ChromAn_{self.analysis_task} \
+--mem={self.memory} \
 --time={self.time_limit} --output={os.path.join(self.job_output, r'%x_%j.out')} \
 --error={os.path.join(self.job_output, r'%x_%j.err')} \
 """         
@@ -160,7 +163,7 @@ f"""#SBATCH --partition={_partiton} # partition (queue) to use
             if self.use_gpu:
                 command += f"""--gres=gpu:1 """
             # partition and account
-            command += f"""--partition={_partiton} --account={_account} """         
+            command += f"""--partition={_partiton} --account={_account} """                     
             # append the rest of command
             command += f"""--wrap="python ./analysis/{self.analysis_task}.py -a {self.analysis_parameters} -c {self.color_usage} -f {_filename}" \
 """

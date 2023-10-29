@@ -45,7 +45,7 @@ class Cell3DSegmentTask(AnalysisTask):
         hyb_folder = os.path.basename(os.path.dirname(self.image_filename))
         ## default parameters:
         _label_key = 'dapi_mask'
-        _overwrite = True # TODO:pass this from analysis_parameters
+        _overwrite = False # TODO:pass this from analysis_parameters
         _compression = 'gzip'
         #_overwrite = getattr(self, 'overwrite', True)
         # load label if already exist:

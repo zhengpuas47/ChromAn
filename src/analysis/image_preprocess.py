@@ -13,11 +13,13 @@ from analysis import AnalysisTask
 class ImagePreprocessTask(AnalysisTask):
     def __init__(self):
         # inherit
-        super().__init__()
+        super().__init__() # by default, image_filename, color_usage, analysis_parameters, overwrite exists.
         # load analysis_parameters
         self._load_analysis_parameters()
         print('parameters:', self.analysis_parameters)
-        
+        return
+    
+    def _run_analysis(self):
         # get params
         _loading_params = self.analysis_parameters.get('loading_params', dict()) # kewargs format
         _correction_params = self.analysis_parameters.get('correction_params', dict()) # kewargs format
@@ -48,8 +50,7 @@ class ImagePreprocessTask(AnalysisTask):
         # load image
         daxp._load_image()
         # apply correction
-        #daxp._apply_corrections(**_correction_params)
-        ## TODO: add corrections
+        daxp.RunCorrection(**_correction_params)
         # save spots and raw_images
         daxp._save_base_to_hdf5(hdf5_filename=_save_filename, key=hyb_folder)
         # fit spots
@@ -63,9 +64,10 @@ class ImagePreprocessTask(AnalysisTask):
                                         channel=_channel, save_type='spots')
         
         return
-        
+    
+###############
+
 if __name__ == '__main__':
     # run
     _task = ImagePreprocessTask()
-    
-# c
+    _task._run_analysis()

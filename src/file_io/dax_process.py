@@ -561,7 +561,7 @@ class DaxProcesser():
             return _corrected_ims, _correction_channels
         
     # remove hot pixels
-    def _corr_hot_pixels(
+    def _corr_hotpixels(
         self, 
         correction_channels=None,
         correction_pf=None,
@@ -1442,28 +1442,100 @@ class DaxProcesser():
                 _target.create_dataset('dna_mask', data=_seg_label)
         # return
         return _seg_label
-    @classmethod
-    def RunCorrection(daxp, correction_params:dict,):
+    # Composite functions to run correction:
+    def RunCorrection(self, 
+                      correction_folder=None,
+                      correction_channels=None,
+                      correction_pf_dict=dict(),
+                      corr_hotpixel=False,
+                      corr_hotpixel_params=dict(),
+                      corr_bleed=True,
+                      corr_bleed_params=dict(),
+                      corr_illumination=True,
+                      corr_illumination_params=dict(),
+                      corr_chromatic=True,
+                      corr_chromatic_params=dict(),
+                      corr_drift=True,
+                      ref_fiducial_image=None,
+                      drift_params=dict(),
+                      warp_image=False,
+                      warp_params=dict(),
+                      ):
         """Function to systematically run correction"""
-        # check correction_params
-        _default_correction_params = {
-            'correction_folder':None,
-            'correction_channels':None,
-            'corr_bleed':True,
-            'corr_illumination':True,
-            'corr_chromatic':True,
-            'corr_hotpixel':True,
-            'warp_image':True,
-        }
-        _default_correction_params.update(correction_params)
         # check correction_folder
-        if _default_correction_params['correction_folder'] is None:
-            if daxp.correction_folder is None:
+        if correction_folder is None:
+            if self.correction_folder is None:
                 raise ValueError("No correction_folder specified.")
             else:
-                _default_correction_params['correction_folder'] = daxp.correction_folder
+                correction_folder = self.correction_folder
         # check correction_channels
-        
+        if correction_channels is None:
+            if self.channels is None:
+                raise ValueError("No correction_channels specified.")
+            else: 
+                correction_channels = [_ch for _ch in self.channels] 
+                if hasattr(self, 'dapi_channel'):
+                    correction_channels = [_ch for _ch in self.channels if _ch != self.dapi_channel] # exclude DAPI      
+        # perform corrections:
+        # 0. correct hotpixels
+        if corr_hotpixel:
+            if self.verbose:
+                print("- run hotpixel correction")
+            self._corr_hotpixels(correction_channels=correction_channels,
+                                  correction_folder=correction_folder,
+                                  correction_pf=correction_pf_dict.get('hot_pixel',None),
+                                  **corr_hotpixel_params,
+                                  )
+        # 1. bleed correction
+        if corr_bleed:
+            if self.verbose:
+                print("- run bleed correction")
+            self._corr_bleedthrough(correction_channels=[_ch for _ch in self.channels 
+                                                         if hasattr(self, 'dapi_channel') and str(_ch) != self.dapi_channel],
+                                    correction_folder=correction_folder,
+                                    correction_pf=correction_pf_dict.get('bleedthrough',None),
+                                    **corr_bleed_params,
+                                    )
+        # 2. illumination correction
+        if corr_illumination:
+            if self.verbose:
+                print("- run illumination correction")
+            self._corr_illumination(correction_channels=correction_channels,
+                                    correction_folder=correction_folder,
+                                    correction_pf=correction_pf_dict.get('illumination',None),
+                                    **corr_illumination_params,
+                                    )
+        # 3 calculate drift
+        if corr_drift:
+            if self.verbose:
+                print("- run drift correction")
+            self._calculate_drift(RefImage=ref_fiducial_image,
+                                  **drift_params,
+                                  )
+        # 4. chromatic correction
+        # if warp:
+        if warp_image:
+            if self.verbose:
+                print("- run warp correction")
+            self._corr_warpping_drift_chromatic(
+                correction_channels=correction_channels,
+                corr_drift=corr_drift,
+                corr_chromatic=corr_chromatic,
+                correction_folder=correction_folder,
+                correction_pf=correction_pf_dict.get('chromatic',None),
+                **warp_params)
+        else:
+            if corr_chromatic:
+                if self.verbose:
+                    print("- run chromatic correction")
+                self._corr_chromatic_functions(correction_channels=correction_channels,
+                                               correction_folder=correction_folder,
+                                               correction_pf=correction_pf_dict.get('chromatic_function',None),
+                                               **corr_chromatic_params,
+                                               )
+        # return
+        return
+    
     
     
 class Writer(object):

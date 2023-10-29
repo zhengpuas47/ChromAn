@@ -1,6 +1,10 @@
 import numpy as np
 import os, sys
-    
+# required to load parent
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
+from .spot_class import Spots3D
+
 def find_paired_centers(tar_cts, ref_cts, drift=None,
                         cutoff=2, dimension=3,  
                         return_paired_cts=True, 
@@ -141,3 +145,42 @@ def check_paired_centers(paired_tar_cts, paired_ref_cts,
         _return_args.append(_kept_ref_cts)
     
     return tuple(_return_args)
+
+def colocalize_spots(
+    ch1_spots:Spots3D,
+    ch2_spots:Spots3D,
+    threshold:float=250, # nm
+    keep_method:str='intensity',
+    verbose:bool=True,
+):
+    """Funciton to co-localize spots
+    ch1_spots: channel-1 spots, Spots3D;
+    ch2_spots: channel-2 spots, Spots3D;
+    threshold: distance threshold to determine pairs, float (default: 250nm)
+    keep_brighest_unique: whether keep the brigh
+    """
+    # calculate distmat
+    from scipy.spatial.distance import cdist
+    _dist_mat = cdist(ch1_spots.to_positions(), ch2_spots.to_positions())
+    # find neighbors
+    _ixs, _iys = np.where(_dist_mat < threshold)
+    _paired_ixs, _paired_iys = [], []
+    
+    while (len(_ixs) > 0 and len(_iys) > 0):
+        # find the brightest x
+        _bxs = ch1_spots.to_intensities()[_ixs]
+        _ix = _ixs[np.argmax(_bxs)]
+        # find matching max_y
+        _sel_iys = _iys[_ixs==_ix]
+        _sel_bys = ch2_spots.to_intensities()[_sel_iys]
+        _iy = _iys[np.argmax(_sel_bys)]
+        # keep the pair
+        _paired_ixs.append(_ix)
+        _paired_iys.append(_iy)
+        # remove everything identical
+        _keep_flags = (_ixs != _ix) & (_iys != _iy)
+        _ixs, _iys = _ixs[_keep_flags], _iys[_keep_flags] 
+        
+        #print(_bxs, _ix, _iy, ch1_spots.to_positions()[_ix], ch2_spots.to_positions()[_iy])
+        #break
+    return ch1_spots[np.array(_paired_ixs)], ch2_spots[np.array(_paired_iys)]
