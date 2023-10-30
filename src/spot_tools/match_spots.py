@@ -165,22 +165,26 @@ def colocalize_spots(
     # find neighbors
     _ixs, _iys = np.where(_dist_mat < threshold)
     _paired_ixs, _paired_iys = [], []
-    
+    # loop through matched spots
     while (len(_ixs) > 0 and len(_iys) > 0):
-        # find the brightest x
-        _bxs = ch1_spots.to_intensities()[_ixs]
-        _ix = _ixs[np.argmax(_bxs)]
+        if keep_method == 'intensity':
+            # find the brightest x
+            _bxs = ch1_spots.to_intensities()[_ixs]
+            _ix = _ixs[np.argmax(_bxs)]
+        else:
+            raise ValueError("Invalid keep_method")
         # find matching max_y
         _sel_iys = _iys[_ixs==_ix]
         _sel_bys = ch2_spots.to_intensities()[_sel_iys]
-        _iy = _iys[np.argmax(_sel_bys)]
+        _iy = _sel_iys[np.argmax(_sel_bys)]
         # keep the pair
         _paired_ixs.append(_ix)
         _paired_iys.append(_iy)
         # remove everything identical
         _keep_flags = (_ixs != _ix) & (_iys != _iy)
         _ixs, _iys = _ixs[_keep_flags], _iys[_keep_flags] 
-        
         #print(_bxs, _ix, _iy, ch1_spots.to_positions()[_ix], ch2_spots.to_positions()[_iy])
         #break
+    if verbose:
+        print("-- %d pairs found" % len(_paired_ixs) )
     return ch1_spots[np.array(_paired_ixs)], ch2_spots[np.array(_paired_iys)]
