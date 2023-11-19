@@ -3,7 +3,7 @@ import os, sys, time, json
 import numpy as np
 # local functions and variables
 sys.path.append('..')
-from src.default_parameters import default_slurm_output
+from default_parameters import default_slurm_output
 # create
 from file_io.data_organization import search_fovs_in_folders, Color_Usage
 
@@ -51,8 +51,6 @@ def build_parser():
     
     
     return parser
-
-
 
 def _get_input_path(prompt):
     while True:
@@ -134,12 +132,13 @@ class GenerateAnalysisTask(object):
 #SBATCH --error={os.path.join(self.job_output, r'%x_%j.err')}
 """
         # Set partitions and accounts
-        _cpu_partition = 'weissman' # 20
+        _cpu_partition = '20'# 'weissman' # 20
         _cpu_account = 'weissman' # 'wibrusers' 
-        _gpu_partition = 'nvidia-2080ti-20' # 'sabre' #'nvidia-A4000-20' #
-        _gpu_account = 'wibrusers' # 'weissman' # 
+        _gpu_partition = 'nvidia-2080ti-20' # 'sabre' 
+        _gpu_account = 'wibrusers' # 'weissman' 
         # GPU related settings:
         if self.use_gpu:
+            print("Use GPU")
             _partiton, _account = _gpu_partition, _gpu_account
             #slurm_header += """#SBATCH --gres=gpu:1              # This is needed to actually access a gpu\n"""
         else:
