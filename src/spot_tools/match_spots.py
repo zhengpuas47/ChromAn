@@ -187,4 +187,7 @@ def colocalize_spots(
         #break
     if verbose:
         print("-- %d pairs found" % len(_paired_ixs) )
-    return ch1_spots[np.array(_paired_ixs)], ch2_spots[np.array(_paired_iys)]
+    if len(_paired_ixs) > 0:
+        return ch1_spots[np.array(_paired_ixs)], ch2_spots[np.array(_paired_iys)]
+    else:
+        return np.array([]), np.array([])
