@@ -28,6 +28,9 @@ from default_parameters import default_num_threads, default_pixel_size, default_
 #
 ######################################################################
 
+def inside_image(coord, image_size):
+    return bool((coord >= np.zeros(len(coord))).all() & (coord <= np.array(image_size)).all())
+
 class Spots_Partition():
     """Class to partition Spots3D into cells
     Used to match segmentation masks with spots.
