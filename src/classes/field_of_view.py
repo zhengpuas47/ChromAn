@@ -1001,6 +1001,8 @@ class Field_of_View():
             for _mk, _ch in zip(_info, self.channels):
                 if _mk.lower() == 'null':
                     continue
+                elif _mk.lower() == 'empty':
+                    continue
                 else:
                     _used_channels.append(_ch)
                     if _dtype_mk in _mk:
