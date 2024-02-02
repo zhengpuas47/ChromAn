@@ -4,17 +4,21 @@ import pickle
 import os
 def analysis_input_parser():
     parser = argparse.ArgumentParser(description='ChromAn analysis process')
-    parser.add_argument('-f', '--image-filename', type=str,
+    parser.add_argument('-f', '--image-filename', type=str, # No default, this has to be specified
         help='the image-filename to be process; required')
     parser.add_argument('-c', '--color-usage', type=str, default='color_usage.csv',
                         help='name of the color_usage file to use')
     parser.add_argument('-a', '--analysis-parameters', type=str, default='parameters.pkl',
                         help='name of the analysis parameters file to use')
-    parser.add_argument('-s', '--overwrite', type=bool, default=False,
+    parser.add_argument('-s', '--save-folder', type=str, default=None,
+                        help='name of the save folder')
+    parser.add_argument('-r', '--correction-folder', type=str, default='/lab/weissman_imaging/puzheng/Corrections/20231012-Merscope01_s40_n500',
+                        help='Whether to run the test')    
+    parser.add_argument('-o', '--overwrite', type=bool, default=False,
                         help='Whether to overwrite the existing file')
     parser.add_argument('-t', '--test', type=bool, default=False,
                         help='Whether to run the test')
-    
+
     return parser
 
 def load_analyis_parameters(analysis_parameters):

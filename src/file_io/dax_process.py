@@ -1204,11 +1204,24 @@ class DaxProcesser():
                 )
         return
 
-    def _save_to_npy(self, save_channels, save_folder=None, save_basenames=None):
+    def _save_to_npy(self, save_channels, save_folder=None, save_basename=None):
+        
         if save_folder is None:
-            pass
-    
-
+            save_folder = os.dirname(self.save_filename)
+        if not os.path.exists(save_folder):
+            if self.verbose:
+                print("Create folder: ", save_folder)
+            os.makedirs(save_folder)
+        # basename
+        if save_basename is None:
+            save_basename = os.path.basename(self.filename).split(os.extsep)[0]
+        for _ch in save_channels:
+            _im = getattr(self, f"im_{_ch}")
+            _channel_save_filename = os.path.join(save_folder, f"{save_basename}_{_ch}.npy")
+            if self.overwrite or not os.path.exists(_channel_save_filename):
+                if self.verbose:
+                    print(f"-- save channel {_ch} to {_channel_save_filename}")
+                np.save(_channel_save_filename, _im)                   
 
     # Loading:
     def _load_from_hdf5(self, channel, type, hdf5_filename, key):
