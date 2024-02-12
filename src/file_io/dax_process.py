@@ -1204,7 +1204,7 @@ class DaxProcesser():
                 )
         return
 
-    def _save_to_npy(self, save_channels, save_folder=None, save_basename=None):
+    def _save_to_npy(self, save_channels, save_folder=None, save_basename=None, overwrite=False):
         
         if save_folder is None:
             save_folder = os.dirname(self.save_filename)
@@ -1218,7 +1218,7 @@ class DaxProcesser():
         for _ch in save_channels:
             _im = getattr(self, f"im_{_ch}")
             _channel_save_filename = os.path.join(save_folder, f"{save_basename}_{_ch}.npy")
-            if self.overwrite or not os.path.exists(_channel_save_filename):
+            if overwrite or not os.path.exists(_channel_save_filename):
                 if self.verbose:
                     print(f"-- save channel {_ch} to {_channel_save_filename}")
                 np.save(_channel_save_filename, _im)                   
