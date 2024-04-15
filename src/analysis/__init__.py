@@ -1,5 +1,5 @@
 # required to load parent
-from analysis_input import analysis_input_parser,load_analyis_parameters
+from analysis_input import analysis_input_parser,load_analyis_parameters,organization_input_parser
 
 class AnalysisTask():
     def __init__(self):
@@ -17,7 +17,15 @@ class AnalysisTask():
             print("No analysis_parameters provided!")
             self.analysis_parameters = dict()
         self.analysis_parameters = load_analyis_parameters(self.analysis_parameters)
+
+class OrganizationTask():
+    def __init__(self) -> None:
+        _parser = organization_input_parser()
+        _args, _ = _parser.parse_known_args()
         
+        
+
+
 def _clean_string_arg(stringIn):
     if stringIn is None:
         return None
