@@ -6,8 +6,9 @@ sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 # load image
 from file_io.dax_process import DaxProcesser
-from file_io.data_organization import Color_Usage, color_usage_kwds
+from file_io.data_organization import search_fovs_in_folders, Color_Usage
 from analysis import AnalysisTask
+from default_parameters import default_correction_folder
 
 class ParseOrganizationTask(AnalysisTask):
     def __init__(self):
@@ -25,20 +26,17 @@ class ParseOrganizationTask(AnalysisTask):
         # get params
         _loading_params = self.analysis_parameters.get('loading_params', dict()) # kewargs format
         # output:
-        _save_folder = getattr(self, 'save_folder', os.path.dirname(self.image_filename))
-        _save_filename = os.path.join(_save_folder,
-            os.path.basename(self.image_filename).replace(os.path.extsep+self.image_filename.split(os.path.extsep)[-1], os.path.extsep+'hdf5'))
+        _save_folder = self.analysis_parameters.get('save_folder', os.path.join(self.data_folder, 'Analysis'))
+        _save_filename = os.path.join(_save_folder, f"organization_{self.field_of_view}.hdf5")
+        # scan subfolders
+        _folders, _fovs = search_fovs_in_folders(self.data_folder)
+        _fov_name = _fovs[self.field_of_view]
         # load color_usage to determine channels to be processed:
         color_usage_df = Color_Usage(self.color_usage)
         # get ref_folder
-        ref_folder = color_usage_df.iloc[_ref_id].index
-        print(ref_folder)
-        print(dir(self))
-        # get save_filename:
-        if hasattr(self, 'save_folder'):
-            print(self.save_folder)
-        if hasattr(self, 'image_filename'):
-            print(self.image_filename)
+        _ref_folder = os.path.join(self.data_folder, color_usage_df.index[_ref_id])
+        self.ref_filename = os.path.join(_ref_folder, _fov_name)
+        print(self.ref_filename)
         # update parameters if not specified:
         if 'FiducialChannel' not in _loading_params:
             _loading_params['FiducialChannel'] = color_usage_df.get_fiducial_channel(color_usage_df)
@@ -47,8 +45,8 @@ class ParseOrganizationTask(AnalysisTask):
 
         # load image
         daxp = DaxProcesser(
-            self.image_filename,
-            CorrectionFolder=self.correction_folder,
+            self.ref_filename,
+            CorrectionFolder=self.analysis_parameters.get('correction_folder', default_correction_folder),
             **_loading_params,
             SaveFilename=_save_filename,
             )
@@ -57,9 +55,7 @@ class ParseOrganizationTask(AnalysisTask):
         # apply correction
         daxp._corr_illumination(correction_channels=[_loading_params['FiducialChannel']])
         # save
-        daxp._save_to_npy(save_channels=[_loading_params['FiducialChannel']],
-                          save_folder=_save_folder, 
-                          save_basename=os.path.basename(self.image_filename).split(os.extsep)[0]) 
+        daxp._save_to_npy(save_channels=[_loading_params['FiducialChannel']],) 
         
         return
     

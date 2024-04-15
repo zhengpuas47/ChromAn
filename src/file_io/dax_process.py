@@ -1207,7 +1207,7 @@ class DaxProcesser():
     def _save_to_npy(self, save_channels, save_folder=None, save_basename=None, overwrite=False):
         
         if save_folder is None:
-            save_folder = os.dirname(self.save_filename)
+            save_folder = os.path.dirname(self.save_filename)
         if not os.path.exists(save_folder):
             if self.verbose:
                 print("Create folder: ", save_folder)
