@@ -10,6 +10,9 @@ def analysis_input_parser():
         help='the data-folder to be process; required')
     parser.add_argument('-c', '--color-usage', type=str, default='color_usage.csv',
                         help='name of the color_usage file to use')
+    parser.add_argument('-i', '--hyb-id', type=int, 
+                        default=-1,
+                        help='the index of the hybridization round to analyze, -1 for all fovs')
     parser.add_argument('-a', '--analysis-parameters', type=str, default='parameters.pkl',
                         help='name of the analysis parameters file to use')
     parser.add_argument('-t', '--test', type=bool, default=False,

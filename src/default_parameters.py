@@ -17,7 +17,9 @@ default_search_radius = 4
 default_correction_folder = r'/lab/weissman_imaging/puzheng/Corrections/20230902-Merscope01_s30_n500'
 # number of threads
 default_num_threads = 12
-
+# default regexp for finding folders and files
+default_data_folder_regexp = r'^H([0-9]+)[RQBUGCMP]([0-9]+)(.*)'
+default_data_fov_regexp = r'(.+)_([0-9]+)\.dax'
 
 # default slurm output, specific to WI server
 default_slurm_output = r'/lab/weissman_imaging/puzheng/slurm_reports/ChromAn_Jobs'
@@ -28,7 +30,7 @@ default_slurm_prameters = {
     'gpu_partition': 'sabre',
     'gpu_account': 'weissman',
     'time': '24:00:00',
-    'mem': '20G',
+    'mem': 20000,
     'nodes': 1,
     'ntasks': 1,
     'cpus-per-task': 4,
