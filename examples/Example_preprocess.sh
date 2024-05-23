@@ -1,3 +1,7 @@
-# Example Notes
-python chroman.py -t image_preprocess -f H0M1 -c color_usage.csv -o /lab/weissman_imaging/puzheng/slurm_reports/ChromAn_Jobs/ --nodes 4 -a /lab/weissman_imaging/puzheng/PE_LT/20230828-ingel_test_GuHCl-4T1-v21x-0813/MEAA_GuHCl_WillWash/Analysis/imageProcessParam.pkl /lab/weissman_imaging/puzheng/PE_LT/20230828-ingel_test_GuHCl-4T1-v21x-0813/MEAA_GuHCl_WillWash/
-python chroman.py -t cell_segment -f H0M1 -c color_usage.csv -o /lab/weissman_imaging/puzheng/slurm_reports/ChromAn_Jobs/ -a test.pkl --nodes 1 /lab/weissman_imaging/puzheng/PE_LT/20230828-ingel_test_GuHCl-4T1-v21x-0813/MEAA_GuHCl_WillWash/ -g
+# check the organization of the data
+# select field of view 24-25
+# select dataset as: /lab/weissman_imaging/puzheng/PE_LT/20240410-4T1fullyEdited_ingel_IntBCv2_combinedEditsv3/
+# color usage file is: Color_Usage_full.csv
+# output the results to: /lab/weissman_imaging/puzheng/PE_LT/20240410-4T1fullyEdited_ingel_IntBCv2_combinedEditsv3/Analysis/
+python chroman.py -t ckeck_organization -d /lab/weissman_imaging/puzheng/PE_LT/20240410-4T1fullyEdited_ingel_IntBCv2_combinedEditsv3/ -c Color_Usage_full.csv -f 24-25 -o /lab/weissman_imaging/puzheng/PE_LT/20240410-4T1fullyEdited_ingel_IntBCv2_combinedEditsv3/Analysis/
+# 
