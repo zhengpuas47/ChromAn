@@ -338,11 +338,13 @@ class Data_Organization(pd.DataFrame):
             _dataType_2_hybs[_merfish_feature]
         print(_ids)
         # loop through merfish rows
-        for _i in np.argsort(_ids):
+        for _ii, _i in enumerate(np.argsort(_ids)):
+            
             _id, _channel, _hyb = _ids[_i], _channels[_i], _hybs[_i]
+            print(_i, f'bit-{_id}', _channel, _hyb)
             # readouts
             if len(readout_names) == len(_ids):
-                _readout = readout_names[_i]
+                _readout = readout_names[_ii] # always append readouts based on actual bit order
             else:
                 _readout = ''
             # for this hyb, try load the first fov as parameter reference:

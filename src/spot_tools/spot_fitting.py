@@ -336,6 +336,14 @@ class SpotFitter(object):
 
         return _background
     
+    def BlobDetector(
+        self, 
+        ):
+        """Function to detect blobs"""
+        pass
+    ## TODO: add support for scikit-image blob detection
+    #skimage.feature.blob_log(image, min_sigma=1, max_sigma=50, num_sigma=10, threshold=0.2, overlap=0.5, log_scale=False)
+    
 
 # fit the entire field of view image
 def fit_fov_image(im, channel, seeds=None, 
