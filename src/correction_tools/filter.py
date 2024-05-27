@@ -19,10 +19,10 @@ def gaussian_deconvolution(im, gfilt_size=2, niter=1):
 def gaussian_high_pass_filter(image, sigma=4, truncate=2.5):
     """Apply gaussian high pass filter to given image"""
     from scipy.ndimage import gaussian_filter
-    lowpass = gaussian_filter(image, sigma, mode='nearest', truncate=truncate)
+    lowpass = gaussian_filter(np.array(image, dtype=np.float32), sigma, mode='nearest', truncate=truncate)
     gauss_highpass = image - lowpass
     gauss_highpass[lowpass > image] = 0
-    return gauss_highpass
+    return gauss_highpass.astype(image.dtype)
 
 def gaussian_highpass_correction(
     ims,

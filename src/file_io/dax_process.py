@@ -1207,7 +1207,7 @@ class DaxProcesser():
     def _save_to_npy(self, save_channels, save_folder=None, save_basename=None, overwrite=False):
         
         if save_folder is None:
-            save_folder = os.dirname(self.save_filename)
+            save_folder = os.path.dirname(self.save_filename)
         if not os.path.exists(save_folder):
             if self.verbose:
                 print("Create folder: ", save_folder)
@@ -1280,6 +1280,11 @@ class DaxProcesser():
             _key, _value = _line.split(' = ')
             _info_dict[_key] = _value
         return _info_dict
+    @staticmethod
+    def _LoadPowerFIle(power_filename):
+        from pandas import read_csv
+        return read_csv(power_filename, delimiter='\s+')
+
     @staticmethod
     def _FindTotalNumFrame(inf_filename):
         return int(DaxProcesser._LoadInfFile(inf_filename)['number of frames'])
