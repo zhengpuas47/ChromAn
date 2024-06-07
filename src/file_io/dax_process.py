@@ -1299,6 +1299,11 @@ class DaxProcesser():
             _info_dict[_key] = _value
         return _info_dict
     @staticmethod
+    def _LoadPowerFIle(power_filename):
+        from pandas import read_csv
+        return read_csv(power_filename, delimiter='\s+')
+
+    @staticmethod
     def _FindTotalNumFrame(inf_filename):
         return int(DaxProcesser._LoadInfFile(inf_filename)['number of frames'])
     @staticmethod
