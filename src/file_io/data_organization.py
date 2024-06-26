@@ -24,7 +24,8 @@ _default_DO_cols = ["channelName", "readoutName", "imageType",
                     "color", "frame", "zPos", "fiducialImageType", 
                     "fiducialRegExp", "fiducialImagingRound", 
                     "fiducialFrame", "fiducialColor"]
-_default_DO_fileRegExp = '(?P<imageType>[\w|-]+)_(?P<fov>[0-9]+)_(?P<imagingRound>[0-9]+)'
+_default_DO_fileRegExp = r'(?P<imageType>[\w|-]+)_(?P<fov>[0-9]+)_(?P<imagingRound>[0-9]+)'
+_default_subfolder_fileRegExp = r'H(?P<imagingRound>[0-9]+)M([0-9]+)/(?P<imageType>[a-zA-z_]+)_(?P<fov>[0-9]+)'
 
 def create_folder(_fd, verbose=True):
     """Formal create folder, resuable"""
@@ -337,6 +338,10 @@ class Data_Organization(pd.DataFrame):
         
         """
         from .dax_process import DaxProcesser
+        # if file_regExp used default value and the data was not reorganized, change to subfolder_regExp
+        if file_regExp == _default_DO_fileRegExp and not reorganized:
+            file_regExp = _default_subfolder_fileRegExp
+        
         _color_usage_df = Color_Usage(color_usage_filename)
         # search folders
         _, _fovs = search_fovs_in_folders(data_folder)
