@@ -142,6 +142,7 @@ class Color_Usage(pd.DataFrame):
             dataType_kwds=color_usage_kwds,
             save_attrs=False,
             overwrite=False,
+            allow_duplicate=False,
         ):
         # generate_regexp for given keywards
         if hasattr(self, '_dataType_2_ids') and \
@@ -173,15 +174,16 @@ class Color_Usage(pd.DataFrame):
                     _dataType_2_ids[_dtype].append(int(_ind))
                     _dataType_2_channels[_dtype].append(_channel)
                     _dataType_2_hybs[_dtype].append(_hyb)
-                elif _info != '' and _info != 'null' and _info != 'beads': # ignore null, empty and beads
+                elif _info != '' and _info != 'null' and _info != 'beads' and _info != 'empty': # ignore null, empty and beads
                     if 'others' not in _dataType_2_ids:
                         _dataType_2_ids['others'] = []
                         _dataType_2_channels['others'] = []
                         _dataType_2_hybs['others'] = []
-                    # append
-                    _dataType_2_ids['others'].append(_info)
-                    _dataType_2_channels['others'].append(_channel)
-                    _dataType_2_hybs['others'].append(_hyb)
+                    if allow_duplicate or _info not in _dataType_2_ids['others']:
+                        # append
+                        _dataType_2_ids['others'].append(_info)
+                        _dataType_2_channels['others'].append(_channel)
+                        _dataType_2_hybs['others'].append(_hyb)
                     
         # save
         if save_attrs:
