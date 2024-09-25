@@ -1221,7 +1221,32 @@ class DaxProcesser():
             if overwrite or not os.path.exists(_channel_save_filename):
                 if self.verbose:
                     print(f"-- save channel {_ch} to {_channel_save_filename}")
-                np.save(_channel_save_filename, _im)                   
+                np.save(_channel_save_filename, _im)
+        if self.verbose:
+            print(f"-- npy files for channel:{save_channels} saved to {save_folder}")
+                     
+    def _save_to_tiff(self, save_channels, save_folder=None, save_basename=None, overwrite=False):
+        """Function to save images to tiff"""
+        from tifffile import imsave
+        if save_folder is None:
+            save_folder = os.path.dirname(self.save_filename)
+        if not os.path.exists(save_folder):
+            if self.verbose:
+                print("Create folder: ", save_folder)
+            os.makedirs(save_folder)
+        # basename
+        if save_basename is None:
+            save_basename = os.path.basename(self.filename).split(os.extsep)[0]
+        for _ch in save_channels:
+            _im = getattr(self, f"im_{_ch}")
+            _channel_save_filename = os.path.join(save_folder, f"{save_basename}_{_ch}.tiff")
+            if overwrite or not os.path.exists(_channel_save_filename):
+                if self.verbose:
+                    print(f"-- save channel {_ch} to {_channel_save_filename}")
+                imsave(_channel_save_filename, _im)
+        if self.verbose:
+            print(f"-- tiff files for channel:{save_channels} saved to {save_folder}")
+        
     # save spots to npy:
     def _save_spots_to_npy(self, save_channels, save_folder=None, save_basename=None, overwrite=False):
         if save_folder is None:
@@ -1301,7 +1326,7 @@ class DaxProcesser():
     @staticmethod
     def _LoadPowerFIle(power_filename):
         from pandas import read_csv
-        return read_csv(power_filename, delimiter='\s+')
+        return read_csv(power_filename, delimiter=r'\s+')
 
     @staticmethod
     def _FindTotalNumFrame(inf_filename):

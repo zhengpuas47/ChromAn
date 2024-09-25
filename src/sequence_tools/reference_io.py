@@ -241,7 +241,7 @@ class gff3_reader(reference_reader):
             elif _line[:2] == '##':
                 _header_lines.append(_line)
                 # add info to existing dicts
-                _infos = re.split("\s+", _line.split("##")[1])
+                _infos = re.split(r"\s+", _line.split("##")[1])
                 if _infos[0] == 'gff-version':
                     self.version = float(_infos[1])
                 elif _infos[0] == 'sequence-region':
@@ -254,7 +254,7 @@ class gff3_reader(reference_reader):
             elif _line[:2] == '#!':
                 _header_lines.append(_line)
                 # add info to existing dicts
-                _infos = re.split("\s+", _line.split("#!")[1])
+                _infos = re.split(r"\s+", _line.split("#!")[1])
                 if len(_infos) >= 2:
                     setattr(self, _infos[0].replace('-','_'), _infos[1])
 
