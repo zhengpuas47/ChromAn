@@ -1,0 +1,142 @@
+
+# this version doesn't have ChromAn compiled, so directly load from src:
+import sys
+import pandas as pd
+import numpy as np
+import os, sys, time
+import re
+import argparse
+import tifffile
+import shutil
+# Parse the arguments
+sys.path.append(r"/lab/weissman_imaging/puzheng/Softwares")
+from ChromAN.src.file_io.data_organization import search_fovs_in_folders, Color_Usage
+from ChromAn.src.file_io.data_organization import Data_Organization, search_fovs_in_folders
+from ChromAn.src.file_io.dax_process import DaxProcesser
+from ChromAn.src.correction_tools.illumination import illumination_correction
+
+dw_path = "/lab/weissman_imaging/puzheng/Softwares/deconwolf/builddir/dw"
+ref_path = "/lab/weissman_imaging/puzheng/Corrections/DW_PSFs"
+# run deconwolf:
+def deconwolf(img, channel, zstep=1200, 
+              dw_path=dw_path, ref_path=ref_path,
+              gpu=False, tile=True, overwrite=False):
+
+    channel_2_psf = {
+        '748':'Alexa750',
+        '637':'Alexa647',
+        '545':'Atto565',
+        '477':'beads',
+        '405':'DAPI',
+    }
+    import tempfile
+    import subprocess
+    from skimage.io import imsave, imread
+    # search excutive:
+    if not os.path.exists(dw_path):
+        raise FileNotFoundError(f"DeconWolf: {dw_path} not fuound")
+    # search ref:
+    matched_psf = [os.path.join(ref_path, _f) for _f in os.listdir(ref_path) 
+                   if (channel_2_psf[str(channel)] in _f) and (str(zstep) in _f)
+                   and ('psf' in _f) and ('tif'==_f.split(os.extsep)[-1])
+                  ]
+    #print(matched_psf)
+    if len(matched_psf) == 0:
+        raise FileNotFoundError(f"No PSF reference found given channel: {channel} in folder: {ref_path}")
+    elif len(matched_psf) > 1:
+        raise FileNotFoundError(f"Multiple PSF reference found given channel: {channel} in folder: {ref_path}")
+    else:
+        matched_psf = matched_psf[0]
+        print(f"PSF: {matched_psf}")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        imsave(f"{tmp_dir}/img.tif",img)
+        gpu = " --gpu" if gpu else ""
+        tile = " --tilesize 1250" if tile else ""
+        overwrite = " --overwrite" if overwrite else ""
+        command = f"{dw_path} --out {tmp_dir}/decon.tif --iter 100 {tile}{gpu}{overwrite} --verbose 1 {tmp_dir}/img.tif {matched_psf}"
+        subprocess.run(command, check=True,shell=True)
+        decon_img = imread(f"{tmp_dir}/decon.tif")
+        
+    return decon_img
+
+
+if __name__ == '__main__':
+    # process args with deconwolf
+    parser = argparse.ArgumentParser(description="DeconWolf processing for MERFISH datasets")
+    # Add arguments
+    parser.add_argument("--fov_id", type=int,help="Field of View")
+    parser.add_argument("--data_path", type=str, help="Image Path")
+    parser.add_argument("--output_path", type=str, help="Output Path")
+    parser.add_argument("--correction_path", type=str, default = None, help="Path to image correction files")
+
+    parser.add_argument("--color_usage", type=str, help="Location for color usage file")
+    parser.add_argument("--data_organization", type=str, help="Location for data organization file")
+
+    parser.add_argument("--gpu", type=bool, default=True, help="Use GPU (True/False)")
+    parser.add_argument("--tile", type=bool, default=True, help="Run with Tiling (True/False)")
+    parser.add_argument("--overwrite", type=bool, default=False, help="Overwrite existing files (True/False)")
+    
+    args = parser.parse_args()
+    # FOV_ID
+    fov_id = args.fov_id
+    #fov_id = 1
+    data_path = args.data_path
+    #data_path = r"/lab/weissman_imaging/puzheng/4T1Tumor/20240917-F320-5-0909_MF7_mch"
+    output_path = args.output_path
+    #output_path = r"/lab/weissman_imaging/puzheng/MERFISH_data/20240917-F320_MF7"
+    # Load data
+    # Color usage file marks the organization of imaging output folders:
+    color_usage = Color_Usage(args.color_usage)
+    #color_usage_filename = os.path.join(data_path, 'Analysis', 'color_usage_MF7_mch.csv')
+    #color_usage = Color_Usage(color_usage_filename)
+    # Data organization file marks the target organziation of MERlin inputs:
+    data_organization = Data_Organization(args.data_organization)
+    #data_organization_filename = f'/lab/weissman_imaging/puzheng/Softwares/Weissman_MERFISH_Scripts/merlin_parameters/dataorganization/20240917-MF7_20bit_v1.csv'
+    #data_organization = Data_Organization(data_organization_filename,)
+    # Correction folder stores illumination correction profiles:
+    correction_folder = args.correction_folder
+    #correction_folder = r'/lab/weissman_imaging/puzheng/Corrections/Data/20240906-beads_correction/Corrections'
+    # additional args, use GPU:
+    use_gpu = getattr(args, 'gpu')
+    #use_gpu = True
+    tile = getattr(args, 'tile')
+    #tile = True
+    overwrite = getattr(args, 'overwrite')
+    
+    _folders, _fovs = search_fovs_in_folders(data_path)
+    for _hyb, _row in color_usage.iterrows():
+
+
+        _round_channels, _round_infos = color_usage.get_channel_info_for_round(_hyb)
+        # run deconwolf for valid channels:
+        _valid_channels = [_ch for _ch, _info in zip(_round_channels, _round_infos) 
+                        if len(_info) > 1 and _info[0]=='m' and _info[1:].isdigit()]
+        _valid_ids = [int(_info[1:]) for _ch, _info in zip(_round_channels, _round_infos) 
+                    if _ch in _valid_channels]
+        # get save_file:
+        _img_type = data_organization.loc[data_organization['bitNumber']==_valid_ids[0], 'imageType'].values[0]
+        _img_round = data_organization.loc[data_organization['bitNumber']==_valid_ids[0], 'imagingRound'].values[0]
+        _save_filename = os.path.join(output_path, f"{_img_type}_{fov_id}_{_img_round}.tif")
+        if os.path.exists(_save_filename):
+            continue
+        
+        # then if doesn't work, start loading data:
+        _daxp = DaxProcesser(os.path.join(os.path.join(data_path,_hyb), _fovs[fov_id]))
+        _daxp._load_image()
+
+        
+        _dw_ims = [deconwolf(getattr(_daxp, f'im_{_ch}'), _ch, gpu=use_gpu, tile=tile) for _ch in _valid_channels ]
+        _dw_ims = illumination_correction(_dw_ims, channels=_valid_channels)
+        # replace attrs:
+        for _im, _ch in zip(_dw_ims, _valid_channels):
+            setattr(_daxp, f"im_{_ch}", _im)
+        # re-save to tiff:
+        _im_sizes = _daxp._FindImageSize(_daxp.filename)
+        print(f"Save to file: {_save_filename}")
+        tifffile.imwrite(_save_filename, 
+                        np.stack([getattr(_daxp, f"im_{_ch}") for _ch in _daxp.channels]).transpose((1,0,2,3)).reshape(len(_daxp.channels)*_im_sizes[0], _im_sizes[1], _im_sizes[2]),
+                        imagej=True)
+        
+    # finish
+    
