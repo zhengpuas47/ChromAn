@@ -1265,7 +1265,10 @@ class DaxProcesser():
                 if self.verbose:
                     print(f"-- save spots of channel {_ch} to {_channel_save_filename}")
                 np.save(_channel_save_filename, _spots)
-                
+    # TODO: save to Dax:
+    def _save_to_dax(self, save_channels, save_folder=None, save_basename=None, overwrite=False):
+        pass
+              
     # Loading:
     def _load_from_hdf5(self, channel, type, hdf5_filename, key):
         # TODO: write proper load_from_hdf5

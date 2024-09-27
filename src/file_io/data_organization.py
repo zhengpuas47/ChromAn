@@ -135,7 +135,6 @@ class Color_Usage(pd.DataFrame):
             warnings.warn("More than one match detected", RuntimeWarning)
         return _matches
 
-
     # a composite function to separate inds and channels for data-types
     def summarize_by_dataType(
             self, 
