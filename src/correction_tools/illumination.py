@@ -221,8 +221,8 @@ def illumination_correction(
         else:
             raise IndexError(f"input image should be 2d or 3d.")
         # rescale
+        _min,_max = 0, np.iinfo(_im.dtype).max
         if rescale: # (np.max(_im) > _max or np.min(_im) < _min)
-            _min,_max = 0, np.iinfo(_im.dtype).max
             _cim = (_cim - np.min(_cim)) / (np.max(_cim) - np.min(_cim)) * _max + _min
             _cim = _cim.astype(_im.dtype)
         else:
