@@ -17,7 +17,7 @@ color_usage_kwds = {
     }
 
 _data_folder_reg = r'^H([0-9]+)[RQBUGCMP]([0-9]+)(.*)'
-_data_fov_reg = r'(.+)_([0-9]+)\.dax'
+_data_fov_reg = r'(.+)_([0-9]+)\.(dax|tif|tiff)' # support dax, tif, tiff now
 
 _default_DO_cols = ["channelName", "readoutName", "imageType", 
                     "imageRegExp", "bitNumber", "imagingRound", 
