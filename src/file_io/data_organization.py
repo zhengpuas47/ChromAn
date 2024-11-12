@@ -366,12 +366,17 @@ class Data_Organization(pd.DataFrame):
             else:
                 _readout = ''
             # for this hyb, try load the first fov as parameter reference:
-            _daxp = DaxProcesser(os.path.join(data_folder, _hyb, _fovs[0]), verbose=False)
+            _test_filename = os.path.join(data_folder, _hyb, _fovs[0])
+            if '.dax' in _test_filename:
+                _daxp = DaxProcesser(_test_filename, verbose=False)
+                _row = self._CreateRowSeries(
+                    _id, _channel, _hyb, _readout, len(self)+1, 
+                    _color_usage_df, _daxp, 
+                    ref_Zstep, file_regExp, self.columns, channel_in_filename=reorganized)
+            elif '.tif' in _test_filename or '.tiff' in _test_filename:
+                pass 
             # create
-            _row = self._CreateRowSeries(
-                _id, _channel, _hyb, _readout, len(self)+1, 
-                _color_usage_df, _daxp, 
-                ref_Zstep, file_regExp, self.columns, channel_in_filename=reorganized)
+
             # append
             self.loc[len(self)] = _row
         if verbose:
@@ -393,41 +398,7 @@ class Data_Organization(pd.DataFrame):
                 ref_Zstep, file_regExp, self.columns, channel_in_filename=reorganized)
             # append
             self.loc[len(self)] = _row            
-            
-        ## fill polyT and DAPI
-        if False:
-            # polyt:
-            _polyt_info = _color_usage_df.get_polyt_info()
-            if len(_polyt_info) > 0:
-                _polyt_info = _polyt_info[sel_feature_ind]
-                _id, _channel, _hyb = 'PolyT', _polyt_info['channel'], _polyt_info['hyb']
-                # for this hyb, try load the first fov as parameter reference:
-                _daxp = DaxProcesser(os.path.join(data_folder, _hyb, _fovs[0]), verbose=False)
-                # create
-                _row = self._CreateRowSeries(
-                    _id, _channel, _hyb, 'polyt', len(self)+1, 
-                    _color_usage_df, _daxp, 
-                    ref_Zstep, file_regExp, self.columns, channel_in_filename=reorganized)
-                # append
-                self.loc[len(self)] = _row
-                if verbose:
-                    print(f"- PolyT row appended.")
-            # dapi
-            _dapi_info = _color_usage_df.get_dapi_info()
-            if len(_dapi_info) > 0:
-                _dapi_info = _dapi_info[sel_feature_ind]
-                _id, _channel, _hyb = 'DAPI', _dapi_info['channel'], _dapi_info['hyb']
-                # for this hyb, try load the first fov as parameter reference:
-                _daxp = DaxProcesser(os.path.join(data_folder, _hyb, _fovs[0]), verbose=False)
-                # create
-                _row = self._CreateRowSeries(
-                    _id, _channel, _hyb, 'dapi', len(self)+1, 
-                    _color_usage_df, _daxp, 
-                    ref_Zstep, file_regExp, self.columns, channel_in_filename=reorganized)
-                # append
-                self.loc[len(self)] = _row
-                if verbose:
-                    print(f"- DAPI row appended.")            
+        
         return
     # save
     def save_to_file(
@@ -463,6 +434,51 @@ class Data_Organization(pd.DataFrame):
             _filename_prefix = '_'.join(_color_usage_df.get_channel_info_for_round(_hyb)[0]) + f"_s{_daxp.image_size[0]}"
         else:
             _filename_prefix = 'Conv_zscan'
+        # ref-zstep
+        if isinstance(ref_Zstep, int):
+            _fiducial_frame_str = ref_Zstep*len(_channels) +_channels.index(_fiducial_channel)
+        else:
+            _fiducial_frame_str = '['+' '.join([str(_z) for _z in list(_daxp._FindChannelFrames(_daxp.filename, verbose=False)[_fiducial_channel])])+']'
+        # prepare args
+        _row = pd.Series([
+            _bit_name, # bit name
+            _readout_name, # readout name
+            _filename_prefix,
+            _file_regExp,
+            _bit_num,
+            _color_usage_df.get_hyb_id(_hyb),
+            _channel,
+            '['+' '.join([str(_z) for _z in _frames])+']',
+            '['+' '.join([str(_z) for _z in _zpos])+']', 
+            _filename_prefix,
+            _file_regExp,
+            _color_usage_df.get_hyb_id(_hyb),
+            _fiducial_frame_str, #ref_Zstep*len(_channels) +_channels.index(_fiducial_channel),
+            _fiducial_channel,  
+        ], index=_columns)
+        
+        return _row
+
+    def _CreateRowSeriesTiff(_id, _channel, _hyb, 
+                             _readout_name, _bit_num, 
+                             _color_usage_df, 
+                             _num_Zsteps, _Zstep_size, 
+                             ref_Zstep, _file_regExp, _columns,
+                             _filename_prefix='Conv_zscan'):
+        """Frequently used function to convert info into pandas Series"""
+        #_zpos = _daxp._FindChannelZpositions(_daxp.xml_filename, verbose=False)[_channel]
+        # assume centered at 0, generate zpos:
+        _zpos = np.arange(_num_Zsteps)*_Zstep_size
+        # define channels from 
+        
+        _frames = list(_daxp._FindChannelFrames(_daxp.filename, verbose=False)[_channel])
+        _channels = _daxp._FindDaxChannels(_daxp.xml_filename, verbose=False)
+        _fiducial_channel = _color_usage_df.get_fiducial_channel(_color_usage_df)
+        
+        if isinstance(_id, str):
+            _bit_name = _id
+        else:
+            _bit_name = f'bit{_id}'
         # ref-zstep
         if isinstance(ref_Zstep, int):
             _fiducial_frame_str = ref_Zstep*len(_channels) +_channels.index(_fiducial_channel)
