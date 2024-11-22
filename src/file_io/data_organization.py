@@ -330,7 +330,7 @@ class Data_Organization(pd.DataFrame):
         readout_names:list=[],
         file_regExp:str=_default_DO_fileRegExp,
         dataType_kwds:dict=color_usage_kwds,
-        sel_feature_ind:int=0,
+        zstep_size:float=0.5,        
         reorganized:bool=True, # whether subfolder is in format of H{hyb_id}R{round}
         verbose:bool=True,
     ):
@@ -374,7 +374,15 @@ class Data_Organization(pd.DataFrame):
                     _color_usage_df, _daxp, 
                     ref_Zstep, file_regExp, self.columns, channel_in_filename=reorganized)
             elif '.tif' in _test_filename or '.tiff' in _test_filename:
-                pass 
+                from tifffile import imread
+                _test_im = imread(_test_filename)
+                _hyb_channels, _hyb_infos = _color_usage_df.get_channel_info_for_round(_hyb)
+                _num_Zsteps = _test_im.shape[0] / len(_hyb_channels)
+                _row = self._CreateRowSeriesTiff(_id, _channel, _hyb, _readout, len(self)+1, 
+                    _color_usage_df, 
+                    _num_Zsteps, zstep_size, 
+                    file_regExp, self.columns,
+                    _filename_prefix='Conv_zscan')
             # create
 
             # append
@@ -389,13 +397,26 @@ class Data_Organization(pd.DataFrame):
         for _info, _channel, _hyb in zip(_other_infos, _other_channels, _other_hybs):
             print("Other info:", _info, _channel, _hyb)
             _readout = '' # skip readouts
-            # for this hyb, try load the first fov as parameter reference:
-            _daxp = DaxProcesser(os.path.join(data_folder, _hyb, _fovs[0]), verbose=False)
-            # create
-            _row = self._CreateRowSeries(
-                _info, _channel, _hyb, _readout, len(self)+1, 
-                _color_usage_df, _daxp, 
-                ref_Zstep, file_regExp, self.columns, channel_in_filename=reorganized)
+            # if dax file provided:
+            _test_filename = os.path.join(data_folder, _hyb, _fovs[0])
+            if '.dax' in _test_filename:
+                # for this hyb, try load the first fov as parameter reference:
+                _daxp = DaxProcesser(_test_filename, verbose=False)
+                # create
+                _row = self._CreateRowSeries(
+                    _info, _channel, _hyb, _readout, len(self)+1, 
+                    _color_usage_df, _daxp, 
+                    ref_Zstep, file_regExp, self.columns, channel_in_filename=reorganized)
+            elif '.tif' in _test_filename or '.tiff' in _test_filename:
+                from tifffile import imread
+                _test_im = imread(_test_filename)
+                _hyb_channels, _hyb_infos = _color_usage_df.get_channel_info_for_round(_hyb)
+                _num_Zsteps = _test_im.shape[0] / len(_hyb_channels)
+                _row = self._CreateRowSeriesTiff(_id, _channel, _hyb, _readout, len(self)+1, 
+                    _color_usage_df, 
+                    _num_Zsteps, zstep_size, 
+                    file_regExp, self.columns,
+                    _filename_prefix='Conv_zscan')
             # append
             self.loc[len(self)] = _row            
         
@@ -458,32 +479,38 @@ class Data_Organization(pd.DataFrame):
         ], index=_columns)
         
         return _row
-
+    @staticmethod
     def _CreateRowSeriesTiff(_id, _channel, _hyb, 
                              _readout_name, _bit_num, 
                              _color_usage_df, 
                              _num_Zsteps, _Zstep_size, 
-                             ref_Zstep, _file_regExp, _columns,
+                             _file_regExp, _columns,
                              _filename_prefix='Conv_zscan'):
         """Frequently used function to convert info into pandas Series"""
         #_zpos = _daxp._FindChannelZpositions(_daxp.xml_filename, verbose=False)[_channel]
         # assume centered at 0, generate zpos:
         _zpos = np.arange(_num_Zsteps)*_Zstep_size
-        # define channels from 
+        _zpos_str = '['+' '.join([str(_z) for _z in _zpos])+']'
+        # get channels and infos from color_usage of this hyb:
+        _channels, _infos = _color_usage_df.get_channel_info_for_round(_hyb)
         
-        _frames = list(_daxp._FindChannelFrames(_daxp.filename, verbose=False)[_channel])
-        _channels = _daxp._FindDaxChannels(_daxp.xml_filename, verbose=False)
-        _fiducial_channel = _color_usage_df.get_fiducial_channel(_color_usage_df)
-        
+        # get the index for this channel:
+        if _channel not in _channels:
+            raise ValueError(f"Channel: {_channel} not in the list of channels: {_channels}")
+        _channel_index = _channels.index(_channel)
+        # get frames
+        _frames = np.array(np.arange(_num_Zsteps)*len(_channels) + _channel_index, dtype=np.int32)
+        _frames_str = '['+' '.join([str(_z) for _z in _frames])+']'
         if isinstance(_id, str):
             _bit_name = _id
         else:
             _bit_name = f'bit{_id}'
-        # ref-zstep
-        if isinstance(ref_Zstep, int):
-            _fiducial_frame_str = ref_Zstep*len(_channels) +_channels.index(_fiducial_channel)
-        else:
-            _fiducial_frame_str = '['+' '.join([str(_z) for _z in list(_daxp._FindChannelFrames(_daxp.filename, verbose=False)[_fiducial_channel])])+']'
+        # fiducial:
+        _fiducial_channel = _color_usage_df.get_fiducial_channel(_color_usage_df)
+        _fiducial_channel_index = _color_usage_df.get_fiducial_channel_index(_color_usage_df) # get fiducial channels
+        _fiducial_frames = np.array(np.arange(_num_Zsteps)*len(_channels) + _fiducial_channel_index, dtype=np.int32)
+        _fiducial_frame_str = '['+' '.join([str(_z) for _z in _fiducial_frames])+']'
+        #= '['+' '.join([str(_z) for _z in list(_daxp._FindChannelFrames(_daxp.filename, verbose=False)[_fiducial_channel])])+']'
         # prepare args
         _row = pd.Series([
             _bit_name, # bit name
@@ -493,8 +520,8 @@ class Data_Organization(pd.DataFrame):
             _bit_num,
             _color_usage_df.get_hyb_id(_hyb),
             _channel,
-            '['+' '.join([str(_z) for _z in _frames])+']',
-            '['+' '.join([str(_z) for _z in _zpos])+']', 
+            _frames_str,
+            _zpos_str,
             _filename_prefix,
             _file_regExp,
             _color_usage_df.get_hyb_id(_hyb),
