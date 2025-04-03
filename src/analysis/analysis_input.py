@@ -15,6 +15,8 @@ def analysis_input_parser():
                         help='the index of the hybridization round to analyze, -1 for all fovs')
     parser.add_argument('-a', '--analysis-parameters', type=str, default='parameters.pkl',
                         help='name of the analysis parameters file to use')
+    parser.add_argument('-s', '--save-folder', type=str, default=None,
+                        help='name of the save folder')
     parser.add_argument('-t', '--test', type=bool, default=False,
                         help='Whether to run the test')
 

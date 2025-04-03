@@ -31,5 +31,5 @@ class MatchingSpots(AnalysisTask):
 
 if __name__ == '__main__':
     # run
-    _task = ImagePreprocessTask()
+    _task = MatchingSpots()
     _task._run_analysis()
