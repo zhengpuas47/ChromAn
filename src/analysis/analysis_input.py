@@ -17,6 +17,10 @@ def analysis_input_parser():
                         help='name of the analysis parameters file to use')
     parser.add_argument('-s', '--save-folder', type=str, default=None,
                         help='name of the save folder')
+    parser.add_argument('-r', '--correction-folder', type=str, default='/lab/weissman_imaging/puzheng/Corrections/20231012-Merscope01_s40_n500',
+                        help='folder containing correction files')
+    parser.add_argument('-m', '--microscope-params', type=str, default='/lab/weissman_imaging/puzheng/Softwares/Weissman_MERFISH_Scripts/merlin_parameters/microscope/merscope01_microscope.json',
+                        help='microscope parameters file')
     parser.add_argument('-t', '--test', type=bool, default=False,
                         help='Whether to run the test')
 
