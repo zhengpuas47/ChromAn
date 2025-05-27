@@ -127,7 +127,7 @@ class Color_Usage(pd.DataFrame):
             for _channel, _info in zip(_channels, _infos):
                 if _info == _key:
                     _matches.append(
-                        {'channel':_channel,'hyb':_hyb,}
+                        {'channel':_channel,'series':_hyb,}
                     )
         if len(_matches) == 0:
             warnings.warn("No matched entry detected", RuntimeWarning)
@@ -197,48 +197,31 @@ class Color_Usage(pd.DataFrame):
         return int(_match.groups()[0])
         
     # method to extract info of special features:
+    def get_info(self, info_query='PolyT'):
+        _matches = []
+        for _hyb in self.index:
+            _channels, _infos = self.get_channel_info_for_round(_hyb)
+            # loop through channels
+            for _channel, _info in zip(_channels, _infos):
+                if _info == info_query:
+                    _matches.append(
+                        {'channel':_channel,'series':_hyb,}
+                    )
+        if len(_matches) == 0:
+            warnings.warn("No match detected", RuntimeWarning)
+        return _matches
+    
     # PolyT
     def get_polyt_info(self, polyt_query='PolyT'):
-        _polyt_matches = []
-        for _hyb in self.index:
-            _channels, _infos = self.get_channel_info_for_round(_hyb)
-            # loop through channels
-            for _channel, _info in zip(_channels, _infos):
-                if _info == polyt_query:
-                    _polyt_matches.append(
-                        {'channel':_channel,'hyb':_hyb,}
-                    )
-        if len(_polyt_matches) == 0:
-            warnings.warn("No polyT match detected", RuntimeWarning)
-        return _polyt_matches
+        return self.get_info(polyt_query)
+    
     # DAPI
     def get_dapi_info(self, dapi_query='DAPI'):
-        _dapi_matches = []
-        for _hyb in self.index:
-            _channels, _infos = self.get_channel_info_for_round(_hyb)
-            # loop through channels
-            for _channel, _info in zip(_channels, _infos):
-                if _info == dapi_query:
-                    _dapi_matches.append(
-                        {'hyb':_hyb, 'channel':_channel,}
-                    )
-        if len(_dapi_matches) == 0:
-            warnings.warn("No DAPI match detected", RuntimeWarning)
-        return _dapi_matches
+        return self.get_info(dapi_query)
+    
     # beads
     def get_fiducial_info(self, fiducial_query='beads'):
-        _fiducial_matches = []
-        for _hyb in self.index:
-            _channels, _infos = self.get_channel_info_for_round(_hyb)
-            # loop through channels
-            for _channel, _info in zip(_channels, _infos):
-                if _info == fiducial_query:
-                    _fiducial_matches.append(
-                        {'hyb':_hyb, 'channel':_channel,}
-                    )
-        if len(_fiducial_matches) == 0:
-            warnings.warn("No fiducial match detected", RuntimeWarning)
-        return _fiducial_matches
+        return self.get_info(fiducial_query)
 
     @staticmethod
     def get_channels(color_usage_df):
@@ -530,3 +513,13 @@ class Data_Organization(pd.DataFrame):
         ], index=_columns)
         
         return _row
+    
+    
+def find_zfill_number(data_folder, file_pattern="Conv_zscan_{fov}.dax"):
+    """Function to find the number of digits in the file name"""
+    for _z in range(10):
+        _f = file_pattern.format(fov=str(0).zfill(_z))
+        if os.path.isfile(os.path.join(data_folder, _f)):
+            return _z
+    
+    raise ValueError(f"File: {file_pattern} not found in folder: {data_folder}")
