@@ -1,6 +1,9 @@
 import os, sys, re, time, h5py, pickle, sys
 import numpy as np 
 import xml.etree.ElementTree as ET
+from copy import copy 
+import json
+
 sys.path.append("..")
 # required to load parent
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -897,7 +900,71 @@ class DaxProcesser():
             return 
         else:
             return _corrected_ims, _correction_channels
-        
+
+    def _transform_by_microscope_param(
+        self,                            
+        correction_channels=None,
+        microscope_params=None,
+        correction_folder=None,
+        save_attrs=True,
+    ):
+        """Function to apply gaussian highpass for selected channels"""
+         
+        if correction_channels is None:
+            correction_channels = self.loaded_channels
+        _correction_channels = [str(_ch) for _ch in correction_channels]
+        if self.verbose:
+            print(f"- Apply microscope transform for channels: {_correction_channels}")
+        ## if finished ALL, directly return
+        _logs = [self.correction_log[_ch].get('corr_microscope', False) for _ch in _correction_channels]
+        if np.array(_logs).all():
+            if self.verbose:
+                print(f"-- microscope transform for channel:{_correction_channels} already finished, skip. ")
+            if save_attrs:
+                return 
+            else:
+                return [],[]
+        ## update _correction_channels based on log
+        _correction_channels = [_ch for _ch, _log in zip(_correction_channels, _logs) if not _log ]
+        if self.verbose:
+            print(f"-- Keep channels: {_correction_channels} for transform_by_microscope.")
+        # load profile
+        if correction_folder is None:
+            correction_folder = self.correction_folder
+            if microscope_params is None:
+                # try to load:
+                microscope_param_filename = os.path.join(correction_folder, 'microscope_params.json')
+                if os.path.isfile(microscope_param_filename):
+                    with open(microscope_param_filename, 'r') as f:
+                        microscope_params = json.load(f)
+                else:
+                    raise ValueError("microscope_params should be specified if correction_folder is not given.")
+        _corrected_ims = []
+        for _ch in _correction_channels:
+            _image = copy(getattr(self, f"im_{_ch}"))
+            if not isinstance(microscope_params, dict):
+                raise TypeError(f"Wrong inputt ype for microscope_params, should be a dict")
+            # transpose
+            if 'transpose' in microscope_params and microscope_params['transpose']:
+                _image = _image.transpose((0,2,1))
+            if 'flip_horizontal' in microscope_params and microscope_params['flip_horizontal']:
+                _image = np.flip(_image, 2)
+            if  'flip_vertical' in microscope_params and microscope_params['flip_vertical']:
+                _image = np.flip(_image, 1)
+            _corrected_ims.append(_image)
+        # after finish, save attr
+        if save_attrs:
+            for _ch, _im in zip(_correction_channels, _corrected_ims):
+                setattr(self, f"im_{_ch}", _im.copy())
+            del(_corrected_ims)
+            # update log
+            for _ch in _correction_channels:
+                self.correction_log[_ch]['corr_microscope'] = True
+            self.correction_praram['corr_microscope'] = microscope_params
+            return
+        else:
+            return _corrected_ims, _correction_channels
+
     # Spot_fitting:
     def _fit_3D_spots(
         self,
