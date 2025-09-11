@@ -103,8 +103,8 @@ def check_paired_centers(paired_tar_cts, paired_ref_cts,
         _paired_ref_cts: paired reference centers, 2d numpy arrray of n_spots*dim
         """
     from scipy.spatial import Delaunay
-    _tar_cts = np.array(paired_tar_cts, dtype=np.float)
-    _ref_cts = np.array(paired_ref_cts, dtype=np.float)
+    _tar_cts = np.array(paired_tar_cts, dtype=np.float32)
+    _ref_cts = np.array(paired_ref_cts, dtype=np.float32)
     _shifts = _tar_cts - _ref_cts
     if verbose:
         print(f"-- check {len(_tar_cts)} pairs of centers", end=', ')

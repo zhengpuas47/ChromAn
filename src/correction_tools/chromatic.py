@@ -110,25 +110,25 @@ def generate_chromatic_function(chromatic_const_file, drift=None):
 
 
 # basic function to geenrate chromatic abbrevation profiles and constants
-def Generate_chromatic_abbrevation(chromatic_folder, ref_folder, 
-                                   chromatic_channel, 
-                                   ref_channel=_chromatic_ref_channel,
-                                   fiducial_channel=default_fiducial_channel,
-                                   parallel=True, num_threads=12, 
-                                   start_fov=0, num_images=48,
-                                   correction_folder = default_correction_folder,
-                                   drift_args={},
-                                   seeding_args={},
-                                   fitting_args={},
-                                   matching_args={},
-                                   crop_size=9, rsq_th=0.9,
-                                   fitting_orders=1, ref_center=None,
-                                   make_plots=True, save_plots=True, 
-                                   save_folder=None, 
-                                   save_name='chromatic_correction',
-                                   overwrite_temp=False, overwrite_profile=False,
-                                   verbose=True,
-                                   ):
+def Generate_chromatic_aberration(chromatic_folder, ref_folder, 
+    chromatic_channel, 
+    ref_channel=_chromatic_ref_channel,
+    fiducial_channel=default_fiducial_channel,
+    parallel=True, num_threads=12, 
+    start_fov=0, num_images=48,
+    correction_folder = default_correction_folder,
+    drift_args={},
+    seeding_args={},
+    fitting_args={},
+    matching_args={},
+    crop_size=9, rsq_th=0.9,
+    fitting_orders=1, ref_center=None,
+    make_plots=True, save_plots=True, 
+    save_folder=None, 
+    save_name='chromatic_correction',
+    overwrite_temp=False, overwrite_profile=False,
+    verbose=True,
+    ):
     """Generate chromatic abbrevation profile from fitted pair of spots"""
     from file_io.dax_process import load_image_base
     ## 0. inputs

@@ -26,6 +26,7 @@ def deconwolf(img, channel, zstep=500,
         '637':'Alexa647',
         '545':'Atto565',
         '477':'beads',
+        '488':'Alexa488',
         '405':'DAPI',
     }
     import tempfile

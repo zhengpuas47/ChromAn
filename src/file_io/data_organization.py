@@ -292,6 +292,9 @@ class Data_Organization(pd.DataFrame):
             super().__init__(columns=_default_DO_cols, *args, **kwargs)
             self.filename = filename
             self.verbose = verbose
+        
+        if 'bitNumber' in self.columns:
+            self['bitNumber'] = self['bitNumber'].astype(np.int32) # bitNumber should be int
         return
     
     def read_from_file(self):

@@ -142,6 +142,7 @@ class SpotFitter(object):
         min_dynamic_seeds=1,
         remove_hot_pixel=True, 
         hot_pixel_th=3,
+        return_h=False,
         verbose=False,
         )->np.ndarray:
         """Function to fully get seeding pixels given a image and thresholds.
@@ -263,7 +264,10 @@ class SpotFitter(object):
             _final_coords = _final_coords[:np.int64(max_num_seeds)]
             if verbose:
                 print(f"--- {max_num_seeds} seeds are kept.")
-        return Spots3D(_final_coords)
+        if not return_h:
+            return _final_coords[:,1:] # remove height
+        else:
+            return Spots3D(_final_coords)
     
     @staticmethod
     def remove_edge_points(

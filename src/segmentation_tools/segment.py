@@ -436,6 +436,7 @@ class cellposeSegment():
         
         # return:
         self.watershed_masks = watershed_masks
+        self.watershed_z_offsets = self.nuc_z_offsets
         return self.watershed_masks
     
     def save_tiff_images(self, 
@@ -602,7 +603,7 @@ class cellposeSegment():
         # match masks:
         logger.info(f"Matching masks with overlap threshold {overlap_threshold}")
         # calculate volume overlaps:
-        merged_masks = np.zeros(np.shape(cyto_masks))
+        merged_masks = np.zeros(np.shape(cyto_masks), dtype=np.int16)
 
         for _cyto in np.unique(cyto_masks):
             if _cyto == 0:

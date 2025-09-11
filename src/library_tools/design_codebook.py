@@ -1,5 +1,5 @@
 import numpy as np
-
+from scipy.spatial.distance import pdist, squareform
 # Conversion
 def barcode_to_matrix(barcodes, num_bits=None):
     try:
@@ -73,9 +73,9 @@ def select_balanced_subsets(barcodes, sel_num, ):
 
 # Calculation
 def HammingDist_for_matrix(matrix):
-    from scipy.spatial.distance import pdist, squareform
     _dists = pdist(matrix)**2
     print(f"minimum hamming distance: {np.min(_dists):1n}")
     _distmat = squareform(_dists)
     return _distmat
+
 

@@ -329,7 +329,7 @@ class DaxProcesser():
         elif DapiChannel is None and default_dapi_channel in self.channels:
             self.dapi_channel = str(default_dapi_channel)
         if RefCorrectionChannel is not None and str(RefCorrectionChannel) in self.channels:
-            self.ref_correction_channel = str(DapiChannel)
+            self.ref_correction_channel = str(RefCorrectionChannel)
         elif RefCorrectionChannel is None and len(self.channels) > 1:
             self.ref_correction_channel = str(self.channels[1])
         # ImageSize
@@ -516,7 +516,7 @@ class DaxProcesser():
                            correction_channels=None,
                            correction_pf=None, 
                            correction_folder=None,
-                           rescale=True,
+                           rescale=False,
                            save_attrs=True,
                            )->None:
         """Apply bleedthrough correction to remove crosstalks between channels
@@ -572,7 +572,7 @@ class DaxProcesser():
         hot_pixel_th:float=0.5, 
         hot_pixel_num_th:float=4,
         interpolation_style='nearest', 
-        rescale=True, 
+        rescale=False, 
         save_attrs:bool=True,
         )->None:
         """Remove hot pixel by interpolation"""
@@ -630,7 +630,7 @@ class DaxProcesser():
                            correction_channels=None,
                            correction_pf=None, 
                            correction_folder=None,
-                           rescale=True,
+                           rescale=False,
                            save_attrs=True,
                            overwrite=False,
                            )->None:
@@ -692,7 +692,7 @@ class DaxProcesser():
         correction_folder=None,
         ref_channel=None,
         warp_kwargs={'warp_order':1, 'border_mode':'grid-constant'},
-        rescale=True, # not useful here
+        rescale=False, # not useful here
         save_attrs=True, 
         ):
         """Warp image in 3D to correct for translation and chromatic abbrevation
@@ -848,7 +848,7 @@ class DaxProcesser():
         correction_folder=None,
         sigma=3,
         truncate=2,
-        rescale=True, 
+        rescale=False, 
         save_attrs=True,
         ):
         """Function to apply gaussian highpass for selected channels"""

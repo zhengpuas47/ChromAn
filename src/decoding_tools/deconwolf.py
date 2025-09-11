@@ -18,13 +18,15 @@ ref_path = "/lab/weissman_imaging/puzheng/Corrections/DW_PSFs"
 # run deconwolf:
 def deconwolf(img, channel, zstep=1200, tile_size=800,
               dw_path=dw_path, ref_path=ref_path,
-              gpu=False, tile=True, overwrite=False):
+              gpu=False, n_iter=100, scale=1.,
+              tile=True, overwrite=False):
 
     channel_2_psf = {
         '748':'Alexa750',
         '637':'Alexa647',
         '545':'Atto565',
         '477':'beads',
+        '488':'Alexa488',
         '405':'DAPI',
     }
     import tempfile
@@ -51,8 +53,9 @@ def deconwolf(img, channel, zstep=1200, tile_size=800,
         imsave(f"{tmp_dir}/img.tif",img)
         gpu = " --gpu" if gpu else ""
         tile = f" --tilesize {tile_size}" if tile else ""
+        scale = f" --scaling {scale}" if scale else ""
         overwrite = " --overwrite" if overwrite else ""
-        command = f"{dw_path} --out {tmp_dir}/decon.tif --iter 100 {tile}{gpu}{overwrite} --verbose 1 {tmp_dir}/img.tif {matched_psf}"
+        command = f"{dw_path} --out {tmp_dir}/decon.tif --iter {n_iter}{scale}{tile}{gpu}{overwrite} --verbose 1 {tmp_dir}/img.tif {matched_psf}"
         print("DeconWolf command: ", command)
         subprocess.run(command, check=True,shell=True)
         decon_img = imread(f"{tmp_dir}/decon.tif")
@@ -87,13 +90,23 @@ if __name__ == '__main__':
     data_path = args.data_path
     #data_path = r"/lab/weissman_imaging/puzheng/4T1Tumor/20240917-F320-5-0909_MF7_mch"
     output_path = args.output_path
+    if not os.path.exists(output_path):
+        print(f"Output path {output_path} doesn't exist, creating ...")
+        try:
+            os.makedirs(output_path)
+        except:
+            pass
     #output_path = r"/lab/weissman_imaging/puzheng/MERFISH_data/20240917-F320_MF7"
     # Load data
     # Color usage file marks the organization of imaging output folders:
+    if not os.path.exists(args.color_usage):
+        raise FileNotFoundError(f"Color usage file {args.color_usage} not found")
     color_usage = Color_Usage(args.color_usage)
     #color_usage_filename = os.path.join(data_path, 'Analysis', 'color_usage_MF7_mch.csv')
     #color_usage = Color_Usage(color_usage_filename)
     # Data organization file marks the target organziation of MERlin inputs:
+    if not os.path.exists(args.data_organization):
+        raise FileNotFoundError(f"Data organization file {args.data_organization} not found")
     data_organization = Data_Organization(args.data_organization)
     #data_organization_filename = f'/lab/weissman_imaging/puzheng/Softwares/Weissman_MERFISH_Scripts/merlin_parameters/dataorganization/20240917-MF7_20bit_v1.csv'
     #data_organization = Data_Organization(data_organization_filename,)
@@ -120,6 +133,10 @@ if __name__ == '__main__':
         # if deconwolf is needed:
         if len(_valid_ids) > 0: 
             # get save_file:
+            print(_valid_ids)
+            print(data_organization.loc[data_organization['bitNumber']==_valid_ids[0], 'imageType'])
+            print(data_organization['bitNumber'])
+            print(data_organization['bitNumber'].dtype)
             _img_type = data_organization.loc[data_organization['bitNumber']==_valid_ids[0], 'imageType'].values[0]
             _img_round = data_organization.loc[data_organization['bitNumber']==_valid_ids[0], 'imagingRound'].values[0]
             _save_filename = os.path.join(output_path, f"{_img_type}_{output_fov_id}_{_img_round}.tif")
@@ -128,13 +145,22 @@ if __name__ == '__main__':
                 continue
 
             # then if doesn't work, start loading data:
-            _daxp = DaxProcesser(os.path.join(os.path.join(data_path,_hyb), _fovs[fov_id]))
+            _daxp = DaxProcesser(os.path.join(os.path.join(data_path,_hyb), _fovs[fov_id]),
+                                 RefCorrectionChannel=637,
+                                 CorrectionFolder=correction_path,
+                                 )
             _daxp._load_image()
+            # run chromatic correction:
+            _daxp._corr_warpping_drift_chromatic(corr_drift=False, 
+                                                 corr_chromatic=True, 
+                                                 correction_channels=_valid_channels)
             # run illumination correction:
-            #_daxp._corr_illumination(correction_folder=correction_path, correction_channels=_valid_channels, rescale=False) # test illumination correction before deconwolf
+            ##_daxp._corr_illumination(correction_folder=correction_path, correction_channels=_valid_channels, rescale=False) # test illumination correction before deconwolf
             # run deconwolf:
             _dw_ims = [deconwolf(getattr(_daxp, f'im_{_ch}'), _ch, gpu=use_gpu, tile=tile, tile_size=tile_size) for _ch in _valid_channels ]
-            _dw_ims = illumination_correction(_dw_ims, channels=_valid_channels, correction_folder=correction_path) # illumination correction after deconwolf
+            #_dw_ims = illumination_correction(_dw_ims, channels=_valid_channels, correction_folder=correction_path) # illumination correction after deconwolf
+            
+            
             # replace attrs:
             for _im, _ch in zip(_dw_ims, _valid_channels):
                 setattr(_daxp, f"im_{_ch}", _im)
