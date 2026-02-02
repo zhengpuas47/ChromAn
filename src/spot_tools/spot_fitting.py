@@ -142,7 +142,7 @@ class SpotFitter(object):
         min_dynamic_seeds=1,
         remove_hot_pixel=True, 
         hot_pixel_th=3,
-        return_h=False,
+        return_h=True,
         verbose=False,
         )->np.ndarray:
         """Function to fully get seeding pixels given a image and thresholds.

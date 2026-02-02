@@ -74,8 +74,8 @@ def find_paired_centers(tar_cts, ref_cts, drift=None,
         _return_args.append(_paired_tar_cts)
         _return_args.append(_paired_ref_cts)
     if return_kept_inds:
-        _paired_tar_inds = np.array(_unique_pair_inds, dtype=np.int)[:,0]
-        _paired_ref_inds = np.array(_unique_pair_inds, dtype=np.int)[:,1]
+        _paired_tar_inds = np.array(_unique_pair_inds, dtype=np.int32)[:,0]
+        _paired_ref_inds = np.array(_unique_pair_inds, dtype=np.int32)[:,1]
         # append
         _return_args.append(_paired_tar_inds)
         _return_args.append(_paired_ref_inds)
