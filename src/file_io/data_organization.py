@@ -80,10 +80,10 @@ class Color_Usage(pd.DataFrame):
             print(f"- load color_usage from file: {self.filename}")
         color_usage_df = pd.read_csv(self.filename, index_col=0)
         self.__dict__.update(color_usage_df.__dict__)
-    
     ### TODO: add query functions for color_usage
     def summarize(
         self,
+        allowed_kwds={},
         overwrite:bool=True,
         ):
         """get a summary of the full color usage, sort by data_type:"""
@@ -154,9 +154,9 @@ class Color_Usage(pd.DataFrame):
         # summarize datatype
         _dataType_regexp = f"([{''.join(list(dataType_kwds.values()))}])([0-9]+)"
         # init
-        _dataType_2_ids = {}
-        _dataType_2_channels = {}
-        _dataType_2_hybs = {}
+        _dataType_2_ids = {'others':[]}
+        _dataType_2_channels = {'others':[]}
+        _dataType_2_hybs = {'others':[]}
         # remaining names:
         for _hyb in self.index:
             _channels, _infos = self.get_channel_info_for_round(_hyb)
@@ -174,10 +174,7 @@ class Color_Usage(pd.DataFrame):
                     _dataType_2_channels[_dtype].append(_channel)
                     _dataType_2_hybs[_dtype].append(_hyb)
                 elif _info != '' and _info != 'null' and _info != 'beads' and _info != 'empty': # ignore null, empty and beads
-                    if 'others' not in _dataType_2_ids:
-                        _dataType_2_ids['others'] = []
-                        _dataType_2_channels['others'] = []
-                        _dataType_2_hybs['others'] = []
+                    # only append new information, or allow_duplicate:
                     if allow_duplicate or _info not in _dataType_2_ids['others']:
                         # append
                         _dataType_2_ids['others'].append(_info)
@@ -240,10 +237,12 @@ class Color_Usage(pd.DataFrame):
         else:
             return None
     @staticmethod
-    def get_fiducial_channel(color_usage_df, fiducial_query='beads'):
+    def get_fiducial_channel(color_usage_df, fiducial_query='beads', use_dapi_if_not_found=True):
         for _c in color_usage_df.columns:
              if fiducial_query in color_usage_df[_c].fillna(-1).values:
                  return _c
+        if use_dapi_if_not_found:
+            return Color_Usage.get_dapi_channel(color_usage_df)
         return None
     @staticmethod
     def get_fiducial_channel_index(color_usage_df):
