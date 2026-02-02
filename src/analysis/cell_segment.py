@@ -16,7 +16,7 @@ _default_segmentation_kwargs = {
     'do_3D': True,
     'cellprob_threshold': -3,
     'batch_size':24,
-    'downsample': 4,
+    'downsample': 5,
 }
 #_default_correction_folder = r'/lab/weissman_imaging/puzheng/Corrections/20240401-Merscope01_s11_n1200'
 #_default_microscope_params = r'/lab/weissman_imaging/puzheng/Softwares/Weissman_MERFISH_Scripts/merlin_parameters/microscope/merscope01_microscope.json'
@@ -129,8 +129,8 @@ class CellSegmentTask(AnalysisTask):
                 do_3D=self.segmentation_kwargs.get('do_3D', True),
                 cellprob_threshold=self.segmentation_kwargs.get('cellprob_threshold', -3),
                 batch_size=self.segmentation_kwargs.get('batch_size', 24),
-                downsample=self.segmentation_kwargs.get('downsample', 4),
-                clear_border=self.segmentation_kwargs.get('clear_border', True),
+                downsample=self.segmentation_kwargs.get('downsample', 5),
+                clear_border=self.segmentation_kwargs.get('clear_border', False),
             )
         else:
             logger.info("Skipping nuclei segmentation.")
@@ -142,8 +142,8 @@ class CellSegmentTask(AnalysisTask):
                 do_3D=self.segmentation_kwargs.get('do_3D', True),
                 cellprob_threshold=self.segmentation_kwargs.get('cellprob_threshold', -3),
                 batch_size=self.segmentation_kwargs.get('batch_size', 24),
-                downsample=self.segmentation_kwargs.get('downsample', 4),
-                clear_border=self.segmentation_kwargs.get('clear_border', True),
+                downsample=self.segmentation_kwargs.get('downsample', 5),
+                clear_border=self.segmentation_kwargs.get('clear_border', False),
             )
         else:
             logger.info("Skipping cytoplasm segmentation.")
@@ -152,7 +152,7 @@ class CellSegmentTask(AnalysisTask):
             logger.info("Applying watershed segmentation.")
             sg.watershed(
                 waterline_th=self.segmentation_kwargs.get('waterline_th', 0.9),
-                clear_border=self.segmentation_kwargs.get('clear_border', True),
+                clear_border=self.segmentation_kwargs.get('clear_border', False),
             )
         # report segmentation results:
         if self.analysis_parameters.get('report_matched', False):
