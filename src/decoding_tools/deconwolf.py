@@ -18,7 +18,8 @@ ref_path = "/lab/weissman_imaging/puzheng/Corrections/DW_PSFs"
 # run deconwolf:
 def deconwolf(img, channel, zstep=1200, tile_size=800,
               dw_path=dw_path, ref_path=ref_path,
-              gpu=False, n_iter=100, scale=1.,
+              gpu=False, n_iter=100, 
+              float=True, scale=1.,
               tile=True, overwrite=False):
 
     channel_2_psf = {
@@ -55,7 +56,8 @@ def deconwolf(img, channel, zstep=1200, tile_size=800,
         tile = f" --tilesize {tile_size}" if tile else ""
         scale = f" --scaling {scale}" if scale else ""
         overwrite = " --overwrite" if overwrite else ""
-        command = f"{dw_path} --out {tmp_dir}/decon.tif --iter {n_iter}{scale}{tile}{gpu}{overwrite} --verbose 1 {tmp_dir}/img.tif {matched_psf}"
+        use_float = " --float" if float else ""
+        command = f"{dw_path} --out {tmp_dir}/decon.tif --iter {n_iter}{scale}{tile}{gpu}{use_float}{overwrite} --verbose 1 {tmp_dir}/img.tif {matched_psf}"
         print("DeconWolf command: ", command)
         subprocess.run(command, check=True,shell=True)
         decon_img = imread(f"{tmp_dir}/decon.tif")
@@ -72,15 +74,19 @@ if __name__ == '__main__':
     parser.add_argument("--data_path", type=str, help="Image Path")
     parser.add_argument("--output_path", type=str, help="Output Path")
     parser.add_argument("--correction_path", type=str, default = None, help="Path to image correction files")
-
+    # data organization args:
     parser.add_argument("--color_usage", type=str, help="Location for color usage file")
     parser.add_argument("--data_organization", type=str, help="Location for data organization file")
-    
+    parser.add_argument("--image_type", type=str, default="merfish", help="Data type: merfish")
+    # deconwolf specific args:
+    parser.add_argument("--n_iter", type=int, default=100, help="Number of iterations for DeconWolf")
     parser.add_argument("--gpu", type=bool, default=True, help="Use GPU (True/False)")
     parser.add_argument("--tile", type=bool, default=False, help="Run with Tiling (True/False)")
     parser.add_argument("--tile-size", type=int, default=800, help="Tile size")
+    # data saving options:
     parser.add_argument("--overwrite", type=bool, default=False, help="Overwrite existing files (True/False)")
-    
+    parser.add_argument("--save_others", type=bool, default=False, help="Also save other channels without deconwolf processing (True/False)"
+                        )
     args = parser.parse_args()
     # FOV_ID
     fov_id = args.fov_id
@@ -102,43 +108,51 @@ if __name__ == '__main__':
     if not os.path.exists(args.color_usage):
         raise FileNotFoundError(f"Color usage file {args.color_usage} not found")
     color_usage = Color_Usage(args.color_usage)
+    # summarize color_usage:
+    dataType_2_ids, dataType_2_channels, dataType_2_hybs = color_usage.summarize_by_dataType()
     #color_usage_filename = os.path.join(data_path, 'Analysis', 'color_usage_MF7_mch.csv')
     #color_usage = Color_Usage(color_usage_filename)
     # Data organization file marks the target organziation of MERlin inputs:
     if not os.path.exists(args.data_organization):
         raise FileNotFoundError(f"Data organization file {args.data_organization} not found")
     data_organization = Data_Organization(args.data_organization)
-    #data_organization_filename = f'/lab/weissman_imaging/puzheng/Softwares/Weissman_MERFISH_Scripts/merlin_parameters/dataorganization/20240917-MF7_20bit_v1.csv'
-    #data_organization = Data_Organization(data_organization_filename,)
-    # Correction folder stores illumination correction profiles:
+    # image type:
+    image_type = args.image_type
+    # now check if image_type exists in color-usage:
+    if image_type not in dataType_2_hybs:
+        raise ValueError(f"image_type {image_type} not found in color usage file")
+    
+    # Correction folder stores illumination correction profiles:    
     correction_path = args.correction_path
-    #correction_path = r'/lab/weissman_imaging/puzheng/Corrections/Data/20240906-beads_correction/Corrections'
     # additional args, use GPU:
     use_gpu = getattr(args, 'gpu')
     #use_gpu = True
     tile = getattr(args, 'tile')
     tile_size = getattr(args, 'tile_size', 800) # set default to be conservative
-    #tile = True
+    # data saving options:
     overwrite = getattr(args, 'overwrite')
+    save_others = getattr(args, 'save_others')
     
     _folders, _fovs = search_fovs_in_folders(data_path)
     for _hyb, _row in color_usage.iterrows():
         # get information for this round:
         _round_channels, _round_infos = color_usage.get_channel_info_for_round(_hyb)
+        ## TODO: here hard-coded "m" for merfish, need to generalize later
         # run deconwolf for valid channels:
         _valid_channels = [_ch for _ch, _info in zip(_round_channels, _round_infos) 
-                        if len(_info) > 1 and _info[0]=='m' and _info[1:].isdigit()]
-        _valid_ids = [int(_info[1:]) for _ch, _info in zip(_round_channels, _round_infos) 
-                    if _ch in _valid_channels]
+                    if len(_info) > 1 and _info not in ['beads','DAPI', 'empty']] # exclude beads channel 
+                        #and _info[0]=='m' and _info[1:].isdigit()] # hide it now, so now it will procees everything:
+        #_valid_ids = [int(_info[1:]) for _ch, _info in zip(_round_channels, _round_infos) 
+        #            if _ch in _valid_channels]
         # if deconwolf is needed:
-        if len(_valid_ids) > 0: 
+        if len(_valid_channels) > 0 and _hyb in dataType_2_hybs[image_type]: 
             # get save_file:
-            print(_valid_ids)
-            print(data_organization.loc[data_organization['bitNumber']==_valid_ids[0], 'imageType'])
+            #print(_valid_ids)
+            #print(data_organization.loc[data_organization['bitNumber']==_valid_ids[0], 'imageType'])
             print(data_organization['bitNumber'])
             print(data_organization['bitNumber'].dtype)
-            _img_type = data_organization.loc[data_organization['bitNumber']==_valid_ids[0], 'imageType'].values[0]
-            _img_round = data_organization.loc[data_organization['bitNumber']==_valid_ids[0], 'imagingRound'].values[0]
+            _img_type = 'Conv_zscan'#data_organization.loc[data_organization['bitNumber']==_valid_ids[0], 'imageType'].values[0]
+            _img_round = _hyb.split('H')[1].split('M')[0] #data_organization.loc[data_organization['bitNumber']==_valid_ids[0], 'imagingRound'].values[0]
             _save_filename = os.path.join(output_path, f"{_img_type}_{output_fov_id}_{_img_round}.tif")
             if os.path.exists(_save_filename):
                 print(f"file for hyb={_hyb}, fov={fov_id}: {_save_filename} already exists, skip")
@@ -171,7 +185,7 @@ if __name__ == '__main__':
                             np.stack([getattr(_daxp, f"im_{_ch}") for _ch in _daxp.channels]).transpose((1,0,2,3)).reshape(len(_daxp.channels)*_im_sizes[0], _im_sizes[1], _im_sizes[2]),
                             imagej=True)
         # no step required, just copy:
-        else:
+        elif save_others:
             _img_type = np.concatenate([data_organization.loc[data_organization['channelName']==_ri, 'imageType'].values for _ri in _round_infos])
             _img_round = np.concatenate([data_organization.loc[data_organization['channelName']==_ri, 'imagingRound'].values for _ri in _round_infos])
             if len(_img_type) == 0:
