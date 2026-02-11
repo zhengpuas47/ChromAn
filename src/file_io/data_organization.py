@@ -2,6 +2,9 @@ import os, sys, re
 import pandas as pd
 import numpy as np
 import warnings
+from pathlib import Path
+
+
 warnings.simplefilter(action='always', category=RuntimeWarning,)
 warnings.simplefilter(action='once', category=UserWarning,)
 color_usage_kwds = {
@@ -18,6 +21,12 @@ color_usage_kwds = {
 
 _data_folder_reg = r'^H([0-9]+)[RQBUGCMP]([0-9]+)(.*)'
 _data_fov_reg = r'(.+)_([0-9]+)\.(dax|tif|tiff)' # support dax, tif, tiff now
+
+dax_regexp=r'H(?P<imagingRound>[0-9]+)[RMPCU]([0-9]+)/(?P<imageType>[a-zA-z_]+)_(?P<fov>[0-9]+).dax'
+# Define standard regExp for confocal; 
+confocal_regexp = r'([0-9_]+)/(?P<imageType>Conv|Confocal)_(Hyb|hyb)(?P<imagingRound>[0-9]+)_(?P<fov>[0-9]+)'
+denoised_regexp = r'([0-9\+_BGM]+)/(?P<imageType>Batch Denoise_000_Conv|Batch Denoise_000_Confocal)_(Hyb|hyb)(?P<imagingRound>[0-9]+)_(?P<fov>[0-9]+)'
+oligoIF_regexp = r'([0-9\+_BGM]+)/(?P<imageType>Conv|Batch Denoise_000_Confocal)_(Hyb|hyb)(?P<imagingRound>[0-9]+)_(?P<fov>[0-9]+)'
 
 _default_DO_cols = ["channelName", "readoutName", "imageType", 
                     "imageRegExp", "bitNumber", "imagingRound", 
@@ -37,6 +46,47 @@ def create_folder(_fd, verbose=True):
     else:
         print(f"Folder: {_fd} already exists")
     return
+
+def generate_filemap(data_folder:Path, 
+    regexp:str=confocal_regexp) -> pd.DataFrame:
+    """Generate filemap dataframe for a given data folder, used for confocal generated nd2 data
+    Args:
+        data_folder (Path): path for this data; assuming the images are in subfolders of this path.
+        regexp (str, optional): regular expression string. Defaults to confocal_regexp.
+
+    Returns:
+        fileMap (pandas.Dataframe): each row is one matched file, each column is each matched group.
+    """
+    # convert input:
+    if not isinstance(data_folder, Path):
+        data_folder = Path(data_folder)
+        
+    fileMap = {'imagePath':[]}
+
+    for file_path in data_folder.rglob('*'):
+        # re match
+        relative_pathname = str(file_path).split(str(data_folder))[1].lstrip('/')
+        match = re.match(regexp, relative_pathname)
+
+        if file_path.is_file() and match:
+
+            # aadd image Path:
+            fileMap['imagePath'].append(relative_pathname)
+            #print(relative_pathname)
+            for _k, _v in match.groupdict().items():
+                if _k not in fileMap:
+                    fileMap[_k] = [_v]
+                else:
+                    fileMap[_k].append(_v)
+    
+    fileMap = pd.DataFrame(fileMap)
+    # set data type
+    if 'imagingRound' in fileMap.columns:
+        fileMap = fileMap.astype({'imagingRound':int})
+    if 'fov' in fileMap.columns:
+        fileMap = fileMap.astype({'fov':int})
+    
+    return fileMap
 
 
 def search_fovs_in_folders(
@@ -80,21 +130,6 @@ class Color_Usage(pd.DataFrame):
             print(f"- load color_usage from file: {self.filename}")
         color_usage_df = pd.read_csv(self.filename, index_col=0)
         self.__dict__.update(color_usage_df.__dict__)
-    ### TODO: add query functions for color_usage
-    def summarize(
-        self,
-        allowed_kwds={},
-        overwrite:bool=True,
-        ):
-        """get a summary of the full color usage, sort by data_type:"""
-        if hasattr(self, 'dataTypeDict') and not overwrite:
-            if self.verbose:
-                print(f"summary already exists, skip.")
-            return
-        dataType_2_infoDict = {}
-        for _data_type, _data_key in color_usage_kwds.items():
-            for _i, _row in self.iterrows():
-                pass
 
     def query(self, data_type, region_id):
         # define custom method here
@@ -277,9 +312,24 @@ class Data_Organization(pd.DataFrame):
     """Class for Data_Organization in MERLin"""
     
     def __init__(self, 
-                 filename:str, 
-                 verbose:bool=True, 
-                 *args, **kwargs):
+        filename:str, 
+        file_style:str='dax',
+        verbose:bool=True, 
+        *args, **kwargs):
+        """
+        Docstring for __init__
+        
+        :param self: Description
+        :param filename: Description
+        :type filename: str
+        :param style: Description
+        :type style: str
+        :param verbose: Description
+        :type verbose: bool
+        :param args: Description
+        :param kwargs: Description
+        """
+
         # load from file if exist
         if os.path.isfile(filename):
             super().__init__(*args, **kwargs)
@@ -294,6 +344,11 @@ class Data_Organization(pd.DataFrame):
         
         if 'bitNumber' in self.columns:
             self['bitNumber'] = self['bitNumber'].astype(np.int32) # bitNumber should be int
+            
+        if file_style not in ['dax','nd2','tiff']:
+            raise ValueError("style beyond dax, nd2 or tiff are not supported.")
+        self.file_style = file_style
+        
         return
     
     def read_from_file(self):
@@ -323,89 +378,147 @@ class Data_Organization(pd.DataFrame):
         Inputs:
         
         """
-        from .dax_process import DaxProcesser
-        # if file_regExp used default value and the data was not reorganized, change to subfolder_regExp
-        if file_regExp == _default_DO_fileRegExp and not reorganized:
-            file_regExp = _default_subfolder_fileRegExp
-        
-        _color_usage_df = Color_Usage(color_usage_filename)
-        # search folders
-        _, _fovs = search_fovs_in_folders(data_folder)
-        # match with color_usage
-        _dataType_2_ids, _dataType_2_channels, _dataType_2_hybs \
-            = _color_usage_df.summarize_by_dataType(save_attrs=False)
-        ## fill merfish related bits
-        _merfish_feature = dataType_kwds['merfish']
-        _ids, _channels, _hybs = _dataType_2_ids[_merfish_feature], \
-            _dataType_2_channels[_merfish_feature], \
-            _dataType_2_hybs[_merfish_feature]
-        # check the datatype keywords:
-        # loop through merfish rows
-        for _ii, _i in enumerate(np.argsort(_ids)):
+        if self.file_style == 'dax':
+            from .dax_process import DaxProcesser
+            # if file_regExp used default value and the data was not reorganized, change to subfolder_regExp
+            if file_regExp == _default_DO_fileRegExp and not reorganized:
+                file_regExp = _default_subfolder_fileRegExp
             
-            _id, _channel, _hyb = _ids[_i], _channels[_i], _hybs[_i]
-            print("MERFISHbit", _i, f'bit-{_id}', _channel, _hyb)
-            # readouts
-            if len(readout_names) == len(_ids):
-                _readout = readout_names[_ii] # always append readouts based on actual bit order
-            else:
-                _readout = ''
-            # for this hyb, try load the first fov as parameter reference:
-            _test_filename = os.path.join(data_folder, _hyb, _fovs[0])
-            if '.dax' in _test_filename:
-                _daxp = DaxProcesser(_test_filename, verbose=False)
-                _row = self._CreateRowSeries(
-                    _id, _channel, _hyb, _readout, len(self)+1, 
-                    _color_usage_df, _daxp, 
-                    ref_Zstep, file_regExp, self.columns, channel_in_filename=reorganized)
-            elif '.tif' in _test_filename or '.tiff' in _test_filename:
-                from tifffile import imread
-                _test_im = imread(_test_filename)
-                _hyb_channels, _hyb_infos = _color_usage_df.get_channel_info_for_round(_hyb)
-                _num_Zsteps = _test_im.shape[0] / len(_hyb_channels)
-                _row = self._CreateRowSeriesTiff(_id, _channel, _hyb, _readout, len(self)+1, 
-                    _color_usage_df, 
-                    _num_Zsteps, zstep_size, 
-                    file_regExp, self.columns,
-                    _filename_prefix='Conv_zscan')
-            # create
-
-            # append
-            self.loc[len(self)] = _row
-        if verbose:
-            print(f"- {len(_ids)} MERFISH rows appended.")
-        # everything except merfish: fill
-        _other_infos, _other_channels, _other_hybs = \
-            _dataType_2_ids['others'], \
-            _dataType_2_channels['others'], \
-            _dataType_2_hybs['others']
-        for _info, _channel, _hyb in zip(_other_infos, _other_channels, _other_hybs):
-            print("Other info:", _info, _channel, _hyb)
-            _readout = '' # skip readouts
-            # if dax file provided:
-            _test_filename = os.path.join(data_folder, _hyb, _fovs[0])
-            if '.dax' in _test_filename:
+            _color_usage_df = Color_Usage(color_usage_filename)
+            # search folders
+            _, _fovs = search_fovs_in_folders(data_folder)
+            # match with color_usage
+            _dataType_2_ids, _dataType_2_channels, _dataType_2_hybs \
+                = _color_usage_df.summarize_by_dataType(save_attrs=False)
+            ## fill merfish related bits
+            _merfish_feature = dataType_kwds['merfish']
+            _ids, _channels, _hybs = _dataType_2_ids[_merfish_feature], \
+                _dataType_2_channels[_merfish_feature], \
+                _dataType_2_hybs[_merfish_feature]
+            # check the datatype keywords:
+            # loop through merfish rows
+            for _ii, _i in enumerate(np.argsort(_ids)):
+                
+                _id, _channel, _hyb = _ids[_i], _channels[_i], _hybs[_i]
+                print("MERFISHbit", _i, f'bit-{_id}', _channel, _hyb)
+                # readouts
+                if len(readout_names) == len(_ids):
+                    _readout = readout_names[_ii] # always append readouts based on actual bit order
+                else:
+                    _readout = ''
                 # for this hyb, try load the first fov as parameter reference:
-                _daxp = DaxProcesser(_test_filename, verbose=False)
-                # create
-                _row = self._CreateRowSeries(
-                    _info, _channel, _hyb, _readout, len(self)+1, 
-                    _color_usage_df, _daxp, 
-                    ref_Zstep, file_regExp, self.columns, channel_in_filename=reorganized)
-            elif '.tif' in _test_filename or '.tiff' in _test_filename:
-                from tifffile import imread
-                _test_im = imread(_test_filename)
-                _hyb_channels, _hyb_infos = _color_usage_df.get_channel_info_for_round(_hyb)
-                _num_Zsteps = _test_im.shape[0] / len(_hyb_channels)
-                _row = self._CreateRowSeriesTiff(_id, _channel, _hyb, _readout, len(self)+1, 
-                    _color_usage_df, 
-                    _num_Zsteps, zstep_size, 
-                    file_regExp, self.columns,
-                    _filename_prefix='Conv_zscan')
-            # append
-            self.loc[len(self)] = _row            
+                _test_filename = os.path.join(data_folder, _hyb, _fovs[0])
+                if '.dax' in _test_filename:
+                    _daxp = DaxProcesser(_test_filename, verbose=False)
+                    _row = self._CreateRowSeries(
+                        _id, _channel, _hyb, _readout, len(self)+1, 
+                        _color_usage_df, _daxp, 
+                        ref_Zstep, file_regExp, self.columns, channel_in_filename=reorganized)
+                elif '.tif' in _test_filename or '.tiff' in _test_filename:
+                    from tifffile import imread
+                    _test_im = imread(_test_filename)
+                    _hyb_channels, _hyb_infos = _color_usage_df.get_channel_info_for_round(_hyb)
+                    _num_Zsteps = _test_im.shape[0] / len(_hyb_channels)
+                    _row = self._CreateRowSeriesTiff(_id, _channel, _hyb, _readout, len(self)+1, 
+                        _color_usage_df, 
+                        _num_Zsteps, zstep_size, 
+                        file_regExp, self.columns,
+                        _filename_prefix='Conv_zscan')
+                # append
+                self.loc[len(self)] = _row
+            if verbose:
+                print(f"- {len(_ids)} MERFISH rows appended.")
+            # everything except merfish: fill
+            _other_infos, _other_channels, _other_hybs = \
+                _dataType_2_ids['others'], \
+                _dataType_2_channels['others'], \
+                _dataType_2_hybs['others']
+            for _info, _channel, _hyb in zip(_other_infos, _other_channels, _other_hybs):
+                print("Other info:", _info, _channel, _hyb)
+                _readout = '' # skip readouts
+                # if dax file provided:
+                _test_filename = os.path.join(data_folder, _hyb, _fovs[0])
+                if '.dax' in _test_filename:
+                    # for this hyb, try load the first fov as parameter reference:
+                    _daxp = DaxProcesser(_test_filename, verbose=False)
+                    # create
+                    _row = self._CreateRowSeries(
+                        _info, _channel, _hyb, _readout, len(self)+1, 
+                        _color_usage_df, _daxp, 
+                        ref_Zstep, file_regExp, self.columns, channel_in_filename=reorganized)
+                elif '.tif' in _test_filename or '.tiff' in _test_filename:
+                    from tifffile import imread
+                    _test_im = imread(_test_filename)
+                    _hyb_channels, _hyb_infos = _color_usage_df.get_channel_info_for_round(_hyb)
+                    _num_Zsteps = _test_im.shape[0] / len(_hyb_channels)
+                    _row = self._CreateRowSeriesTiff(_id, _channel, _hyb, _readout, len(self)+1, 
+                        _color_usage_df, 
+                        _num_Zsteps, zstep_size, 
+                        file_regExp, self.columns,
+                        _filename_prefix='Conv_zscan')
+                # append
+                self.loc[len(self)] = _row            
+        
+        elif self.file_style == 'nd2':
+        # ND2 version:
+            from .nd2_process import Nd2Processer
+            # step1: create filemap:
+            if file_regExp == _default_DO_fileRegExp:
+                # reset this to be confocal:
+                file_regExp = confocal_regexp
+            # create filemap:
+            filemap = generate_filemap(data_folder=data_folder,regexp=file_regExp)
+            # load color_usage:
+            _color_usage_df = Color_Usage(color_usage_filename)
+            # summarize color_usage:
+            _dataType_2_ids, _dataType_2_channels, _dataType_2_hybs \
+                = _color_usage_df.summarize_by_dataType(save_attrs=False)
+            # fill merfish related bits:
+            _merfish_feature = dataType_kwds['merfish']
+            _ids, _channels, _hybs = _dataType_2_ids[_merfish_feature], \
+                _dataType_2_channels[_merfish_feature], \
+                _dataType_2_hybs[_merfish_feature]
+            # now based on images, 
+            test_fov = filemap['fov'].unique()[0]
+            fov_filemap = filemap.loc[filemap['fov']==test_fov]
+            test_round = fov_filemap['imagingRound'].min()
+            full_test_filename = os.path.join(str(data_folder), fov_filemap.loc[fov_filemap['imagingRound']==test_round,'imagePath'].values[0])
+            # load an example ND2:
+            _nd2_processer = Nd2Processer(full_test_filename)
+            _nd2_processer._load_image()            
+            # loop through merfish rows
+            for _ii, _i in enumerate(np.argsort(_ids)):
+                _id, _channel, _hyb = _ids[_i], _channels[_i], _hybs[_i]
+                print("MERFISHbit", _i, f'bit-{_id}', _channel, _hyb)
+                #print(fov_filemap.loc[_hyb in fov_filemap['imagePath'].values])
+                
+                _row = self._CreateRowSeriesND2(_id, _channel, _hyb, _ii+1, 
+                                                readout_names[_ii], _color_usage_df, 
+                                                fov_filemap, _nd2_processer=_nd2_processer)
+                # append
+                self.loc[len(self)] = _row
+            # loop through other rows:
+            # everything except merfish: fill
+            _other_infos, _other_channels, _other_hybs = \
+                _dataType_2_ids['others'], \
+                _dataType_2_channels['others'], \
+                _dataType_2_hybs['others']
+            for _info, _channel, _hyb in zip(_other_infos, _other_channels, _other_hybs):
+                print("Other info:", _info, _channel, _hyb)
+                _readout = '' # skip readouts
+
+                _row = self._CreateRowSeriesND2(_info, _channel, _hyb, len(self)+1, 
+                                                _readout,_color_usage_df, 
+                                                fov_filemap, _nd2_processer=_nd2_processer)
+                # append
+                self.loc[len(self)] = _row
+        
+        ## TODO: implement the tiff version;
+        elif self.file_style == 'tiff':
+            raise NotImplementedError("Tiff version was not implemented yet.")
         
         return
+    
     # save
     def save_to_file(
         self,
@@ -515,7 +628,63 @@ class Data_Organization(pd.DataFrame):
         ], index=_columns)
         
         return _row
-    
+    @staticmethod
+    def _CreateRowSeriesND2(
+        _id, _channel, _hyb, _bit_number,
+        _readout_name, 
+        _color_usage_df,
+        _filemap,
+        _nd2_processer,
+        _file_regExp=confocal_regexp,
+        _columns=_default_DO_cols,
+    ):
+        """Generate DataOrganization row series"""
+        
+        # channelName
+        if isinstance(_id, str):
+            _channelName = _id
+        else:
+            _channelName = f'bit{_id}' 
+        _readoutName = str(_readout_name)
+        _matched_row = _filemap.loc[[_hyb in _f for _f in _filemap['imagePath'].values]].iloc[0]
+        _imageType = _matched_row['imageType']
+        _imageRegExp = _file_regExp
+        _bitNumber = int(_bit_number)
+        _imagingRound = _matched_row['imagingRound']
+        _color = str(_channel)
+        _color_index = _nd2_processer.channel_indices[_nd2_processer.channels.index(_color)]
+        _numZ = _nd2_processer._GetImageSize()['Z']
+        _frame = np.arange(_numZ*_color_index, _numZ*(_color_index+1) )
+        _frameStr = '['+' '.join([str(_f) for _f in _frame])+']'
+        _zPos = np.round(_nd2_processer._FindChannelZpositions()[_color],2)
+        _zPosStr = '['+' '.join([str(_f) for _f in _zPos])+']'
+        _fiducialImageType = _imageType
+        _fiducialRegExp = _imageRegExp
+        _fiducialImageRound = _imagingRound
+        # fiducial channel:
+        _fiducialColor = str(_color_usage_df.get_fiducial_channel(_color_usage_df))
+        _fiducial_color_index = _nd2_processer.channel_indices[_nd2_processer.channels.index(_fiducialColor)]
+        _fiducialFrame = np.arange(_numZ*_fiducial_color_index, _numZ*(_fiducial_color_index+1) )
+        _fiducialFrameStr = '['+' '.join([str(_f) for _f in _fiducialFrame])+']'
+        # assemble:
+        _row = pd.Series([
+            _channelName, # bit name
+            _readoutName, # readout name
+            _imageType,
+            _imageRegExp,
+            _bitNumber,
+            _imagingRound,
+            _color,
+            _frameStr,
+            _zPosStr,
+            _fiducialImageType,
+            _fiducialRegExp,
+            _fiducialImageRound,
+            _fiducialFrameStr,
+            _fiducialColor,  
+        ], index=_columns)
+
+        return _row
     
 def find_zfill_number(data_folder, file_pattern="Conv_zscan_{fov}.dax"):
     """Function to find the number of digits in the file name"""
