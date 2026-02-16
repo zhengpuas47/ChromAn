@@ -16,6 +16,41 @@ def _find_boundary(_ct, _radius, _im_size):
     
     return np.array(_bds, dtype=np.int32)
 
+def generate_patchified_crops(single_im_size=default_im_size,
+                            num_patches_per_axis:np.int32=5,
+                            )-> list[np.ndarray]:
+    """Function to generate patchified crops from given image size and number of patches per XY axis
+    keywards:
+        single_im_size: single image size to generate crops, np.ndarray like;
+        num_patches_per_axis: number of patches per XY axis, int;
+        patch_size: size of each patch, int or np.int32;
+    returns:
+        crops: (num_patches_per_axis**2)x3x2 np.ndarray. 
+    """
+    # check inputs
+    _single_im_size = np.array(single_im_size)
+    if len(_single_im_size) !=3:
+        raise ValueError(f"wrong input single_im_size:{single_im_size}, should be 3D size.")
+    if num_patches_per_axis <1:
+        raise ValueError(f"wrong input num_patches_per_axis:{num_patches_per_axis}, should be positive.")
+    # loop through XY patches
+    crops = []
+    patch_size_y = int(_single_im_size[-2]/num_patches_per_axis)
+    patch_size_x = int(_single_im_size[-1]/num_patches_per_axis)
+    for _iy in range(num_patches_per_axis):
+        for _ix in range(num_patches_per_axis):
+            center_y = int(patch_size_y/2 + _iy*patch_size_y)
+            center_x = int(patch_size_x/2 + _ix*patch_size_x)
+            crop_ct = np.array([_single_im_size[-3]/2, center_y, center_x])
+            crop_bd = _find_boundary(crop_ct, 
+                                    _radius=patch_size_x/2, #np.array([_single_im_size[-3]/2, patch_size_y/2, patch_size_x/2]),
+                                    _im_size=single_im_size)
+            crops.append(crop_bd)
+    return np.array(crops)
+    
+    
+    
+    
 
 def generate_drift_crops(single_im_size=default_im_size, 
                          coord_sel=None, drift_size=None):

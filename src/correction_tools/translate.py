@@ -23,7 +23,7 @@ def warp_3D_images(
     border_mode='grid-constant',
     rescale=True,
     verbose=True,
-    ):
+    ) -> list:
     """Function to warp 3D images from the same dax file"""
     from scipy.ndimage import map_coordinates
     _total_warp_start = time.time()

@@ -20,7 +20,7 @@ def gaussian_high_pass_filter(image, sigma=4, truncate=2.5):
     """Apply gaussian high pass filter to given image"""
     from scipy.ndimage import gaussian_filter
     lowpass = gaussian_filter(np.array(image, dtype=np.float32), sigma, mode='nearest', truncate=truncate)
-    gauss_highpass = image - lowpass
+    gauss_highpass = image.astype(np.float32) - lowpass
     gauss_highpass[lowpass > image] = 0
     return gauss_highpass.astype(image.dtype)
 
@@ -144,68 +144,3 @@ def hot_pixel_correction(
     # return 
     return _corrected_ims
 
-# GPU based filters
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-
-class GaussianBlur3d(nn.Module):
-    """Module for 3D gaussian blur, equivalent to 
-Inputs:
-    kernel_size: kernel image size, recommended to >3x of sigma, int;
-    sigma: gaussian sigma, float;
-    channels: number of channels, int;
-Example Usage:
-    # import
-    import torch
-    # generate test data
-    image_dim = 100
-    channels = 2
-    # create a 3D input tensor (2 channel, image_dim by image_dim by image_dim)
-    x = torch.zeros(channels, image_dim, image_dim, image_dim)
-    x[0,15,15,15] = 1
-    x[1,20,20,20] = 1
-    # create a Gaussian blur module with kernel size 5 and sigma 1.5
-    blur = GaussianBlur3d(kernel_size=5, sigma=1.5, channels=channels)
-    # move the input tensor to the GPU
-    x = x.cuda()
-    # move the blur module to the GPU
-    blur = blur.cuda()
-    # apply the Gaussian blur to the input tensor
-    blurred_x = blur(x)
-    # move the blurred tensor back to the CPU and print its shape
-    blurred_x = blurred_x.cpu()
-    print(blurred_x.shape)  # should be (1, image_dim, image_dim, image_dim)
-    """
-    def __init__(self, 
-                 kernel_size:int, 
-                 sigma:float, 
-                 channels:int=1):
-        super(GaussianBlur3d, self).__init__()
-        self.kernel_size = kernel_size
-        self.sigma = sigma
-        self.channels = channels
-        # create 3D Gaussian kernel
-        kernel = torch.zeros((kernel_size, kernel_size, kernel_size))
-        center = kernel_size // 2
-        for i in range(kernel_size):
-            for j in range(kernel_size):
-                for k in range(kernel_size):
-                    kernel[i,j,k] = torch.exp(
-                        torch.tensor(-((i - center)**2 + (j - center)**2 + (k - center)**2) / (2 * sigma**2))
-                    )
-        kernel /= kernel.sum()
-        # reshape kernel to be 4D for convolution
-        kernel = kernel.view(1, kernel_size, kernel_size, kernel_size)
-        kernel = kernel.repeat(channels, 1, 1, 1, 1)
-        # convert kernel to a PyTorch parameter
-        self.kernel = nn.Parameter(data=kernel, requires_grad=False)
-        # calculate padding to maintain size
-        padding = (kernel_size - 1) // 2
-        self.padding = (padding, padding, padding)
-
-    def forward(self, x):
-        x = F.pad(x, (self.padding[2], self.padding[2], self.padding[1], self.padding[1], self.padding[0], self.padding[0]), mode='reflect')
-        x = F.conv3d(x, self.kernel, groups=self.channels)
-        return x

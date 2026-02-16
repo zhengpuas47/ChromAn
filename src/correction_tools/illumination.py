@@ -182,9 +182,10 @@ def illumination_correction(
     ims, 
     channels,
     correction_pf=None,
+    pf_scale=1.0, # full correction or less
     correction_folder=default_correction_folder,
     ref_channel=default_ref_channel,
-    rescale=True,
+    rescale=False, # change to False
     verbose=True,
     ):
     """Apply illumination correction for 2d or 3d image with 2d profile (x-y)"""
@@ -206,6 +207,9 @@ def illumination_correction(
             im_size=image_size,
             verbose=verbose,
         )
+    # check pf:
+    if pf_scale > 1.0 or pf_scale <= 0:
+        raise ValueError(f"pf_scale should be between (0, 1], exit.")
     # apply correction
     _corrected_ims = []
     for _im, _ch in zip(ims, channels):
@@ -215,9 +219,9 @@ def illumination_correction(
             raise IndexError(f"_channel_profile for illumination should be 2d")
         # apply illumination correction
         if len(np.shape(_im)) == 3:
-            _cim = _im.astype(np.float32) / _channel_profile[np.newaxis,:]
+            _cim = _im.astype(np.float32) / _channel_profile[np.newaxis,:] ** pf_scale
         elif len(np.shape(_im)) == 2:
-            _cim = _im.astype(np.float32) / _channel_profile
+            _cim = _im.astype(np.float32) / _channel_profile ** pf_scale
         else:
             raise IndexError(f"input image should be 2d or 3d.")
         # rescale
