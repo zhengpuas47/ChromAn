@@ -21,8 +21,8 @@ from tifffile import imwrite
 # create a class to do cellpose segmentation:
 # import abstract class:
 from file_io.dax_process import DaxProcesser
-from file_io.data_organization import Color_Usage, find_zfill_number
-
+from file_io.data_organization import Color_Usage, find_zfill_number, generate_filemap, dax_regexp, confocal_regexp
+from file_io.nd2_process import Nd2Processer
 class cellposeSegment():
     """Cellpose segmentation class.
     Parameters:
@@ -43,28 +43,32 @@ class cellposeSegment():
         Path to color usage file.
     """
     def __init__(self, 
-                 data_folder: str, 
-                 field_of_view: int, 
-                 save_folder: str, 
-                 channels: list, 
-                 file_pattern: str = "{series}/Conv_zscan_{fov}.dax", 
-                 correction_folder: str = None, 
-                 color_usage: str = None,
-                 microscope_params: str = None,
-                 ):
+        data_folder: str, 
+        field_of_view: int, 
+        save_folder: str, 
+        nuc_channel: str = 'DAPI',
+        cyto_channel: str = None,
+        file_regExp: str = None,
+        correction_folder: str = None, 
+        color_usage: str = None,
+        microscope_params: str = None,
+        ):
         
         self.data_folder = data_folder
         self.field_of_view = field_of_view
         
         self.save_folder = save_folder
         
-        self.channels = channels
-        self.file_pattern = file_pattern
+        self.nuc_channel = nuc_channel
+        self.cyto_channel = cyto_channel
+        
+        self.file_regExp = file_regExp
         self.correction_folder = correction_folder
         self.color_usage = color_usage
-        # load color_usage:
+        # load color_usage:∂
         if os.path.isfile(self.color_usage):
             self.color_usage = Color_Usage(self.color_usage)
+            self.color_usage.parse_imagingRound()
             self.fiducial_channel = self.color_usage.get_fiducial_channel(self.color_usage)
         else:
             raise FileNotFoundError(f"Color usage file {self.color_usage} not found.")
@@ -80,84 +84,95 @@ class cellposeSegment():
     def load_images(self,
         corr_illumination: bool = True,
         ):
-        # load round 0 as ref:
-        ref_name = self.color_usage.iloc[0].name
-        num_digits = find_zfill_number(os.path.join(self.data_folder, ref_name))
-        ref_filename = os.path.join(
-            self.data_folder,
-            self.file_pattern.format(series=ref_name, fov=str(self.field_of_view).zfill(num_digits)))
-        ref_daxp = DaxProcesser(ref_filename, 
+        """Load image"""
+        # load filemap:
+        if self.file_regExp is None:
+            # use default:
+            _regExp = dax_regexp
+        else:
+            _regExp = self.file_regExp
+        print(f"Use regExp: {_regExp}")
+        # generate filemap:
+        _filemap = generate_filemap(self.data_folder, _regExp)
+        _test_fov = _filemap['fov'].unique()[0]
+        _fov_filemap = _filemap.loc[_filemap['fov']==_test_fov]
+        _ref_round = _fov_filemap['imagingRound'].min()
+        _full_ref_name = os.path.join(
+            self.data_folder, 
+            _fov_filemap.loc[_fov_filemap['imagingRound']==_ref_round, 'imagePath'].values[0]
+        )
+        ref_daxp = DaxProcesser(_full_ref_name, 
                                 CorrectionFolder=self.correction_folder,
                                 FiducialChannel=self.fiducial_channel)
         ref_daxp._load_image(sel_channels=[self.fiducial_channel])
         if corr_illumination:
             ref_daxp._corr_illumination()
         # TODO add z_offsets info:
-        
         # save a few parameters:
-        #self.z_offsets = ref_daxp.get_z_offsets() # TODO
+        #self.z_offsets = ref_daxp.get_z_offsets() 
         self.stage_position = ref_daxp._FindGlobalPosition(ref_daxp.filename)
         # init
         self.cyto_image, self.nuc_image = None, None
         # try to load if specified:
-        cyto_names = ['PolyT','membrane','cyto']
-        for _cyto_name in cyto_names:
-            if _cyto_name in self.channels:
-                # load info from color_usage:
-                _cyto_info = self.color_usage.get_info(_cyto_name)[0]
-                _cyto_filename = os.path.join(
-                    self.data_folder,
-                    self.file_pattern.format(series=_cyto_info['series'], fov=str(self.field_of_view).zfill(num_digits)))
-                # load image:
-                _cyto_daxp = DaxProcesser(_cyto_filename, 
-                                         CorrectionFolder=self.correction_folder,
-                                         FiducialChannel=self.fiducial_channel)
-                _cyto_daxp._load_image(sel_channels=[_cyto_info['channel'], self.fiducial_channel])
-                if corr_illumination:
-                    _cyto_daxp._corr_illumination()
-                _cyto_z_offsets = _cyto_daxp._FindChannelZpositions(_cyto_daxp.xml_filename)[_cyto_info['channel']]
+        if self.cyto_channel is not None:
+            #print(_fov_filemap)
+            
+            # example: 'NaK-ATPase'
+            _cyto_info = self.color_usage.get_info(self.cyto_channel)[-1] # by default always uset the latest one
+            _cyto_basename = _fov_filemap.loc[_fov_filemap['imagingRound']== self.color_usage.loc[_cyto_info['series'],'imagingRound'],'imagePath'].values[0]
+            _cyto_filename = os.path.join(
+                self.data_folder,
+                _cyto_basename,
+            )
+            # load image:
+            _cyto_daxp = DaxProcesser(_cyto_filename, 
+                                        CorrectionFolder=self.correction_folder,
+                                        FiducialChannel=self.fiducial_channel)
+            _cyto_daxp._load_image(sel_channels=[_cyto_info['channel'], self.fiducial_channel])
+            if corr_illumination:
+                _cyto_daxp._corr_illumination()
+            _cyto_z_offsets = _cyto_daxp._FindChannelZpositions(_cyto_daxp.xml_filename)[_cyto_info['channel']]
+            if _cyto_daxp.filename != ref_daxp.filename:
                 # calculate drift:
                 _cyto_daxp._calculate_drift(getattr(ref_daxp, f"im_{self.fiducial_channel}"),)
                 # apply drift to cyto image:
                 _cyto_daxp._corr_warpping_drift_chromatic(correction_channels=[_cyto_info['channel']],
-                                                          corr_chromatic=False)
-                # apply param:
-                _cyto_daxp._transform_by_microscope_param(correction_channels=[_cyto_info['channel']],
-                                                          microscope_params=self.microscope_params)
-                # save cyto image:
-                self.cyto_image = getattr(_cyto_daxp, f"im_{_cyto_info['channel']}")
-                self.cyto_z_offsets = _cyto_z_offsets
-                break
-        # do the same for nuclei:
-        nuc_names = ['DAPI','nuclei']
-        for _nuc_name in nuc_names:
-            if _nuc_name in self.channels:
-                # load info from color_usage:
-                _nuc_info = self.color_usage.get_info(_nuc_name)[0]
-                _nuc_filename = os.path.join(
-                    self.data_folder,
-                    self.file_pattern.format(series=_nuc_info['series'], fov=str(self.field_of_view).zfill(num_digits)))
-                # load image:
-                _nuc_daxp = DaxProcesser(_nuc_filename, 
-                                         CorrectionFolder=self.correction_folder,
-                                         FiducialChannel=self.fiducial_channel)
-                _nuc_daxp._load_image(sel_channels=[_nuc_info['channel'], self.fiducial_channel])
-                if corr_illumination:
-                    _nuc_daxp._corr_illumination()
-                _nuc_z_offsets = _nuc_daxp._FindChannelZpositions(_nuc_daxp.xml_filename)[_nuc_info['channel']]
-                if _nuc_info['series'] != ref_name:
-                    # calculate drift:
-                    _nuc_daxp._calculate_drift(getattr(ref_daxp, f"im_{self.fiducial_channel}"),)
-                    # apply drift to cyto image:
-                    _nuc_daxp._corr_warpping_drift_chromatic(correction_channels=[_nuc_info['channel']],
                                                             corr_chromatic=False)
-                # apply param:
-                _nuc_daxp._transform_by_microscope_param(correction_channels=[_nuc_info['channel']],
-                                                          microscope_params=self.microscope_params)
-                # save cyto image:
-                self.nuc_image = getattr(_nuc_daxp, f"im_{_nuc_info['channel']}")
-                self.nuc_z_offsets = _nuc_z_offsets
-                break
+            # apply param:
+            _cyto_daxp._transform_by_microscope_param(correction_channels=[_cyto_info['channel']],
+                                                        microscope_params=self.microscope_params)
+            # save cyto image:
+            self.cyto_image = getattr(_cyto_daxp, f"im_{_cyto_info['channel']}")
+            self.cyto_z_offsets = _cyto_z_offsets
+        # do the same for nuclei:
+        if self.nuc_channel is not None:
+            # example: 'DAPI'
+            _nuc_info = self.color_usage.get_info(self.nuc_channel)[-1]
+            _nuc_basename = _fov_filemap.loc[_fov_filemap['imagingRound']== self.color_usage.loc[_nuc_info['series'],'imagingRound'],'imagePath'].values[0]
+            _nuc_filename = os.path.join(
+                self.data_folder,
+                _nuc_basename,
+            )
+            # load image:
+            _nuc_daxp = DaxProcesser(_nuc_filename, 
+                                        CorrectionFolder=self.correction_folder,
+                                        FiducialChannel=self.fiducial_channel)
+            _nuc_daxp._load_image(sel_channels=[_nuc_info['channel'], self.fiducial_channel])
+            if corr_illumination:
+                _nuc_daxp._corr_illumination()
+            _nuc_z_offsets = _nuc_daxp._FindChannelZpositions(_nuc_daxp.xml_filename)[_nuc_info['channel']]
+            if _nuc_daxp.filename != ref_daxp.filename:
+                # calculate drift:
+                _nuc_daxp._calculate_drift(getattr(ref_daxp, f"im_{self.fiducial_channel}"),)
+                # apply drift to cyto image:
+                _nuc_daxp._corr_warpping_drift_chromatic(correction_channels=[_nuc_info['channel']],
+                                                        corr_chromatic=False)
+            # apply param:
+            _nuc_daxp._transform_by_microscope_param(correction_channels=[_nuc_info['channel']],
+                                                        microscope_params=self.microscope_params)
+            # save cyto image:
+            self.nuc_image = getattr(_nuc_daxp, f"im_{_nuc_info['channel']}")
+            self.nuc_z_offsets = _nuc_z_offsets
         # check if cyto and nuc images are loaded:
         if self.cyto_image is None:
             raise Warning(f"Cyto image not found in {self.channels}.")
@@ -166,6 +181,98 @@ class cellposeSegment():
         # return
         return self.cyto_image, self.nuc_image
     
+    def load_nd2_images(self):
+        """Load image from confocal"""
+        # load filemap:
+        if self.file_regExp is None:
+            # use default:
+            _regExp = confocal_regexp
+        else:
+            _regExp = self.file_regExp
+        print(f"Use regExp: {_regExp}")
+        # generate filemap:
+        _filemap = generate_filemap(self.data_folder, _regExp)
+        _test_fov = _filemap['fov'].unique()[0]
+        _fov_filemap = _filemap.loc[_filemap['fov']==_test_fov]
+        _ref_round = _fov_filemap['imagingRound'].min()
+        _full_ref_name = os.path.join(
+            self.data_folder, 
+            _fov_filemap.loc[_fov_filemap['imagingRound']==_ref_round, 'imagePath'].values[0]
+        ) 
+        _ref_nd2 = Nd2Processer(_full_ref_name, 
+                                CorrectionFolder=self.correction_folder,
+                                FiducialChannel=self.fiducial_channel,
+            )
+        _ref_nd2._load_image()
+        # load stage position:
+        self.stage_position = _ref_nd2._FindGlobalPosition()
+        # init
+        self.cyto_image, self.nuc_image = None, None
+        # try to load if specified:
+        if self.cyto_channel is not None:
+            print(f"Loading cyto image for channel {self.cyto_channel}")
+            #print(_fov_filemap)
+            # example: 'NaK-ATPase'
+            _cyto_info = self.color_usage.get_info(self.cyto_channel)[0]
+            _cyto_basename = _fov_filemap.loc[_fov_filemap['imagingRound']== self.color_usage.loc[_cyto_info['series'],'imagingRound'],'imagePath'].values[0]
+            _cyto_filename = os.path.join(
+                self.data_folder,
+                _cyto_basename,
+            )
+            # load image:
+            _cyto_nd2 = Nd2Processer(_cyto_filename, 
+                                    CorrectionFolder=self.correction_folder,
+                                    FiducialChannel=self.fiducial_channel)
+            _cyto_nd2._load_image()
+            _cyto_z_offsets = _cyto_nd2._FindChannelZpositions()[_cyto_info['channel']]
+            if _cyto_nd2.filename != _ref_nd2.filename:
+                # calculate drift:
+                _cyto_nd2._calculate_drift(getattr(_ref_nd2, f"im_{self.fiducial_channel}"),)
+                # apply drift to cyto image:
+                _cyto_nd2._warp_image_by_drift(correction_channels=[_cyto_info['channel']],)
+            # apply param:
+            _cyto_nd2._transform_by_microscope_param(correction_channels=[_cyto_info['channel']],
+                                                        microscope_params=self.microscope_params)
+            # save cyto image:
+            self.cyto_image = getattr(_cyto_nd2, f"im_{_cyto_info['channel']}")
+            self.cyto_z_offsets = _cyto_z_offsets
+        
+        # do the same for nuclei:
+        if self.nuc_channel is not None:
+            print(f"Loading nuc image for channel {self.nuc_channel}")
+            # example: 'DAPI'
+            _nuc_info = self.color_usage.get_info(self.nuc_channel)[0]
+            _nuc_basename = _fov_filemap.loc[_fov_filemap['imagingRound']== self.color_usage.loc[_nuc_info['series'],'imagingRound'],'imagePath'].values[0]
+            _nuc_filename = os.path.join(
+                self.data_folder,
+                _nuc_basename,
+            )
+            # load image:
+            _nuc_nd2 = Nd2Processer(_nuc_filename,
+                                        CorrectionFolder=self.correction_folder,
+                                        FiducialChannel=self.fiducial_channel)
+            _nuc_nd2._load_image()
+            _nuc_z_offsets = _nuc_nd2._FindChannelZpositions()[_nuc_info['channel']]
+            if _nuc_nd2.filename != _ref_nd2.filename:
+                # calculate drift:
+                _nuc_nd2._calculate_drift(getattr(_ref_nd2, f"im_{self.fiducial_channel}"),)
+                # apply drift to nuc image:
+                _nuc_nd2._warp_image_by_drift(correction_channels=[_nuc_info['channel']],)
+            # apply param:
+            _nuc_nd2._transform_by_microscope_param(correction_channels=[_nuc_info['channel']],
+                                                        microscope_params=self.microscope_params)
+            # save nuc image:
+            self.nuc_image = getattr(_nuc_nd2, f"im_{_nuc_info['channel']}")
+            self.nuc_z_offsets = _nuc_z_offsets
+                                        
+        # check if cyto and nuc images are loaded:
+        if self.cyto_image is None:
+            raise Warning(f"Cyto image not found in {self.channels}.")
+        if self.nuc_image is None:
+            raise Warning(f"Nuc image not found in {self.channels}.")
+        # return
+        return self.cyto_image, self.nuc_image            
+            
     def segment_nuclei(self,
         filter: str = None,
         filter_args: dict = None,
@@ -177,7 +284,7 @@ class cellposeSegment():
         downsample: float = 4.,
         do_3D: bool = True,
         min_size: int = 1000,
-        clear_border: bool = True,
+        clear_border: bool = False,
         model_args: dict = {},
         ):
         # run cellpose segmentation:
@@ -284,7 +391,7 @@ class cellposeSegment():
         downsample: float = 4.,
         do_3D: bool = True,
         min_size: int = 1000,
-        clear_border: bool = True,
+        clear_border: bool = False,
         model_args: dict = {},
         ):
         # run cellpose segmentation:
@@ -377,7 +484,7 @@ class cellposeSegment():
         filter_size: int = 3,
         filter_args: dict = {},
         waterline_th: float = 0.9,
-        clear_border: bool = True,
+        clear_border: bool = False,
         ):
         # run watershed segmentation:
         """

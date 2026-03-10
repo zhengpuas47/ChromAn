@@ -48,6 +48,7 @@ class Nd2Processer(ND2File):
             self.save_filename = SaveFilename
         else:
             raise TypeError("SaveFilename should be a string of file full path.")
+        self.filename = ImageFilename
         self.saving_log = {}
         # Correction folder
         self.correction_folder = CorrectionFolder
@@ -82,23 +83,33 @@ class Nd2Processer(ND2File):
         # 
         return
     
-    def _load_image(self, return_images=False):
+    def _load_image(self, 
+                    channels=None, 
+                    return_images=False):
         # load metadata first:
         if not hasattr(self, 'channels') or not hasattr(self, 'channel_indices'):
             self._load_metadata()
+        if channels is not None:
+            for _ch in channels:
+                if _ch not in self.channels:
+                    raise ValueError(f"Channel {_ch} is not found in this nd2 file.")
+            self.loaded_channels = channels
         # load images:
         self.open()
         _images = self.asarray()[:]
+        _loaded_images = []
         self.close()        
         # separate_images:
         for _i, (_ch, _ch_ind) in enumerate(zip(self.channels, self.channel_indices)):
-            if self.metadata.channels[_i].loops.ZStackLoop == 0:
-                setattr(self, f"im_{_ch}", _images[:,_ch_ind])
-            elif self.metadata.channels[_i].loops.ZStackLoop is None:
-                setattr(self, f"im_{_ch}", _images[_ch_ind])
+            if channels is None or _ch in channels:
+                if self.metadata.channels[_i].loops.ZStackLoop == 0:
+                    setattr(self, f"im_{_ch}", _images[:,_ch_ind])
+                elif self.metadata.channels[_i].loops.ZStackLoop is None:
+                    setattr(self, f"im_{_ch}", _images[_ch_ind])
+                _loaded_images.append(_images[:,_ch_ind])
         # return
         if return_images:
-            return _images
+            return _loaded_images
     # Function to calculate drift by cross_correlation:
     def _calculate_drift(
         self,
@@ -214,7 +225,70 @@ class Nd2Processer(ND2File):
             return
         else:  
             return corrected_images
-        
+
+    def _transform_by_microscope_param(
+        self,                            
+        correction_channels=None,
+        microscope_params=None,
+        correction_folder=None,
+        save_attrs=True,
+    ):
+        """Function to apply gaussian highpass for selected channels"""
+         
+        if correction_channels is None:
+            correction_channels = self.channels
+        _correction_channels = [str(_ch) for _ch in correction_channels]
+        if self.verbose:
+            print(f"- Apply microscope transform for channels: {_correction_channels}")
+        ## if finished ALL, directly return
+        _logs = [self.correction_log[_ch].get('corr_microscope', False) for _ch in _correction_channels]
+        if np.array(_logs).all():
+            if self.verbose:
+                print(f"-- microscope transform for channel:{_correction_channels} already finished, skip. ")
+            if save_attrs:
+                return 
+            else:
+                return [],[]
+        ## update _correction_channels based on log
+        _correction_channels = [_ch for _ch, _log in zip(_correction_channels, _logs) if not _log ]
+        if self.verbose:
+            print(f"-- Keep channels: {_correction_channels} for transform_by_microscope.")
+        # load profile
+        if correction_folder is None:
+            correction_folder = self.correction_folder
+            if microscope_params is None:
+                # try to load:
+                microscope_param_filename = os.path.join(correction_folder, 'microscope_params.json')
+                if os.path.isfile(microscope_param_filename):
+                    with open(microscope_param_filename, 'r') as f:
+                        microscope_params = json.load(f)
+                else:
+                    raise ValueError("microscope_params should be specified if correction_folder is not given.")
+        _corrected_ims = []
+        for _ch in _correction_channels:
+            _image = copy(getattr(self, f"im_{_ch}"))
+            if not isinstance(microscope_params, dict):
+                raise TypeError(f"Wrong inputt ype for microscope_params, should be a dict")
+            # transpose
+            if 'transpose' in microscope_params and microscope_params['transpose']:
+                _image = _image.transpose((0,2,1))
+            if 'flip_horizontal' in microscope_params and microscope_params['flip_horizontal']:
+                _image = np.flip(_image, 2)
+            if  'flip_vertical' in microscope_params and microscope_params['flip_vertical']:
+                _image = np.flip(_image, 1)
+            _corrected_ims.append(_image)
+        # after finish, save attr
+        if save_attrs:
+            for _ch, _im in zip(_correction_channels, _corrected_ims):
+                setattr(self, f"im_{_ch}", _im.copy())
+            del(_corrected_ims)
+            # update log
+            for _ch in _correction_channels:
+                self.correction_log[_ch]['corr_microscope'] = True
+            self.correction_params['corr_microscope'] = microscope_params
+            return
+        else:
+            return _corrected_ims, _correction_channels
     
     def _FindChannelZpositions(self):
         if not hasattr(self, 'channels') or not hasattr(self, '_expand_coords'):

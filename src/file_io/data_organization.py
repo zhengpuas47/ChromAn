@@ -19,7 +19,7 @@ color_usage_kwds = {
     'protein':'p',
     }
 
-_data_folder_reg = r'^H([0-9]+)[RQBUGCMP]([0-9]+)(.*)'
+_data_folder_reg = r'^H(?P<imagingRound>[0-9]+)[RQBUGCMP]([0-9]+)(.*)'
 _data_fov_reg = r'(.+)_([0-9]+)\.(dax|tif|tiff)' # support dax, tif, tiff now
 
 dax_regexp=r'H(?P<imagingRound>[0-9]+)[RMPCU]([0-9]+)/(?P<imageType>[a-zA-z_]+)_(?P<fov>[0-9]+).dax'
@@ -134,7 +134,19 @@ class Color_Usage(pd.DataFrame):
     def query(self, data_type, region_id):
         # define custom method here
         pass
-
+    
+    def parse_imagingRound(self,regExp=_data_folder_reg):
+        imagingRound = []
+        for _i, _series in enumerate(self.index):
+            _match = re.match(regExp, _series)
+            if _match:
+                imagingRound.append(_match.groupdict()['imagingRound'])
+            else:
+                imagingRound.append(_i)
+        self['imagingRound'] = np.array(imagingRound, dtype=np.int32)
+        self['imagingRound'] = self['imagingRound'].astype('int32')
+        return 
+    
     # query based on hyb_name
     def get_channel_info_for_round(self, hyb_name):
         # extract row
@@ -142,6 +154,8 @@ class Color_Usage(pd.DataFrame):
         # loop through to get rid of NaN
         _hyb_channels, _hyb_infos = [], []
         for _ch, _info in _row.items():
+            if _ch == 'imagingRound':
+                continue
             #print(_info, type(_info))
             if isinstance(_info, str) or np.isfinite(_info):
                 _hyb_channels.append(_ch)
@@ -197,7 +211,7 @@ class Color_Usage(pd.DataFrame):
             _channels, _infos = self.get_channel_info_for_round(_hyb)
             # loop through channels
             for _channel, _info in zip(_channels, _infos):
-                _match = re.match(str(_dataType_regexp), _info)
+                _match = re.match(_dataType_regexp, _info)
                 if _match:
                     _dtype, _ind = _match.groups()
                     if _dtype not in _dataType_2_ids:
