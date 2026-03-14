@@ -308,7 +308,7 @@ class Nd2Processer(ND2File):
         y_pos_key = [_k for _k in _pos_metadata.keys() if 'YPos' in _k][0]
         z_pos_key = [_k for _k in _pos_metadata.keys() if 'ZPos' in _k][0]
         
-        global_pos_dict = {"X":_pos_metadata[x_pos_key],"Y":_pos_metadata[y_pos_key],"Z":_pos_metadata[z_pos_key],}
-        return global_pos_dict
-    
+        #global_pos_dict = {"X":_pos_metadata[x_pos_key],"Y":_pos_metadata[y_pos_key],"Z":_pos_metadata[z_pos_key],}
+        #return global_pos_dict
+        return np.array([_pos_metadata[x_pos_key], _pos_metadata[y_pos_key]])
     
