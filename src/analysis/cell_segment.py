@@ -10,6 +10,8 @@ sys.path.append(os.path.dirname(SCRIPT_DIR))
 from analysis import AnalysisTask
 # Cellpose 
 from segmentation_tools.segment import cellposeSegment
+ 
+
 
 _default_segmentation_kwargs = {
     'min_size':1000,
@@ -17,23 +19,24 @@ _default_segmentation_kwargs = {
     'cellprob_threshold': -3,
     'batch_size':24,
     'downsample': 5,
+    'flow_threshold': 0.2,
 }
 #_default_correction_folder = r'/lab/weissman_imaging/puzheng/Corrections/20240401-Merscope01_s11_n1200'
 #_default_microscope_params = r'/lab/weissman_imaging/puzheng/Softwares/Weissman_MERFISH_Scripts/merlin_parameters/microscope/merscope01_microscope.json'
 
 _default_analysis_parameters = {
-    'channel_names': ['PolyT', 'DAPI'],
-    'segment_nuclei': True,
+    'nuc_channel': 'DAPI',
+    'cyto_channel': 'PolyT',
+    'segment_nuclei': False,
     'segment_cytoplasm': True,
     'watershed': False,
     'report_matched': False,
-    'report_nuclei': True,
+    'report_nuclei': False,
     'report_cytoplasm': True,
     'report_watershed': False,
     'save_tiff': True,
-    'save_masks': False,
+    'save_masks': True,
 }
-
     
 class CellSegmentTask(AnalysisTask):
     def __init__(self, 
@@ -60,6 +63,28 @@ class CellSegmentTask(AnalysisTask):
             logger.info(f"Output data folder {self.save_folder} does not exist, creating it.")
             os.makedirs(self.save_folder)
         logger.info(f"Output directory: {self.save_folder}")
+        # check fileExp:
+        if not hasattr(self, 'file_regexp') or self.file_regexp is None:
+            logger.info("No file regular expression provided, using default value None (all files).")
+            from file_io.data_organization import generate_filemap, dax_regexp, confocal_regexp
+            # try to generate filemap see which one fit:
+            if len(generate_filemap(self.data_folder, dax_regexp)) > 0:
+                self.file_regexp = dax_regexp
+                logger.info(f"Using dax regular expression for file matching.")
+            elif len(generate_filemap(self.data_folder, confocal_regexp)) > 0:
+                self.file_regexp = confocal_regexp
+                logger.info(f"Using confocal regular expression for file matching.")
+            else:
+                raise ValueError("No file regular expression provided and failed to generate filemap with default regular expressions, please provide a valid regular expression for file matching.")
+        else:
+            # if the regexp is provided, check if it can generate filemap:
+            from file_io.data_organization import generate_filemap
+            if len(generate_filemap(self.data_folder, self.file_regexp)) == 0:
+                raise ValueError(f"Provided file regular expression {self.file_regexp} failed to generate filemap, please provide a valid regular expression for file matching.")
+            logger.info(f"Using provided regular expression {self.file_regexp} for file matching.")
+            self.file_regexp = self.file_regexp
+            #self.file_regexp = None
+        
         # update kwargs
         self.segmentation_kwargs = _default_segmentation_kwargs.copy()
         self.segmentation_kwargs.update(kwargs)
@@ -91,7 +116,9 @@ class CellSegmentTask(AnalysisTask):
                 if key not in self.analysis_parameters:
                     self.analysis_parameters[key] = value
         # assign channel names
-        self.channel_names = self.analysis_parameters.get('channel_names', ['PolyT', 'DAPI'])
+        self.nuc_channel = self.analysis_parameters.get('nuc_channel', 'DAPI')
+        self.cyto_channel = self.analysis_parameters.get('cyto_channel', None)
+        
     
     def run(self):
         logger = logging.getLogger(__name__)
@@ -102,7 +129,9 @@ class CellSegmentTask(AnalysisTask):
             data_folder=self.data_folder,
             save_folder=self.save_folder,
             field_of_view=self.field_of_view,
-            channels=self.channel_names,
+            file_regExp=self.file_regexp,
+            nuc_channel=self.nuc_channel,
+            cyto_channel=self.cyto_channel,
             correction_folder=self.correction_folder,
             color_usage=self.color_usage,
             microscope_params=self.microscope_params,
@@ -114,7 +143,12 @@ class CellSegmentTask(AnalysisTask):
         else:
             _corr_illumination = True
             logger.info("Loading images with illumination correction.")
-        sg.load_images(corr_illumination=_corr_illumination)
+        if '.dax' in sg.file_regExp:
+            logger.info("Loading dax images.")
+            sg.load_images(corr_illumination=_corr_illumination)
+        elif '.nd2' in sg.file_regExp:
+            logger.info("Loading nd2 images.")
+            sg.load_nd2_images()
         # save tiff:
         if self.analysis_parameters.get('save_tiff', False):
             logger.info("Saving tiff files.")
@@ -128,6 +162,7 @@ class CellSegmentTask(AnalysisTask):
                 min_size=self.segmentation_kwargs.get('min_size', 1000),
                 do_3D=self.segmentation_kwargs.get('do_3D', True),
                 cellprob_threshold=self.segmentation_kwargs.get('cellprob_threshold', -3),
+                flow_threshold=self.segmentation_kwargs.get('flow_threshold', 0.4),
                 batch_size=self.segmentation_kwargs.get('batch_size', 24),
                 downsample=self.segmentation_kwargs.get('downsample', 5),
                 clear_border=self.segmentation_kwargs.get('clear_border', False),
@@ -141,6 +176,7 @@ class CellSegmentTask(AnalysisTask):
                 min_size=self.segmentation_kwargs.get('min_size', 1000),
                 do_3D=self.segmentation_kwargs.get('do_3D', True),
                 cellprob_threshold=self.segmentation_kwargs.get('cellprob_threshold', -3),
+                flow_threshold=self.segmentation_kwargs.get('flow_threshold', 0.4),
                 batch_size=self.segmentation_kwargs.get('batch_size', 24),
                 downsample=self.segmentation_kwargs.get('downsample', 5),
                 clear_border=self.segmentation_kwargs.get('clear_border', False),

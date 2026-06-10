@@ -24,9 +24,9 @@ _data_fov_reg = r'(.+)_([0-9]+)\.(dax|tif|tiff)' # support dax, tif, tiff now
 
 dax_regexp=r'H(?P<imagingRound>[0-9]+)[RMPCU]([0-9]+)/(?P<imageType>[a-zA-z_]+)_(?P<fov>[0-9]+).dax'
 # Define standard regExp for confocal; 
-confocal_regexp = r'([0-9_]+)/(?P<imageType>Conv|Confocal)_(Hyb|hyb)(?P<imagingRound>[0-9]+)_(?P<fov>[0-9]+)'
-denoised_regexp = r'([0-9\+_BGM]+)/(?P<imageType>Batch Denoise_000_Conv|Batch Denoise_000_Confocal)_(Hyb|hyb)(?P<imagingRound>[0-9]+)_(?P<fov>[0-9]+)'
-oligoIF_regexp = r'([0-9\+_BGM]+)/(?P<imageType>Conv|Batch Denoise_000_Confocal)_(Hyb|hyb)(?P<imagingRound>[0-9]+)_(?P<fov>[0-9]+)'
+confocal_regexp = r'([0-9_]+)/(?P<imageType>Conv|Confocal)_(Hyb|hyb)(?P<imagingRound>[0-9]+)_(?P<fov>[0-9]+)\.nd2'
+denoised_regexp = r'([0-9\+_BGM]+)/(?P<imageType>Batch Denoise_000_Conv|Batch Denoise_000_Confocal)_(Hyb|hyb)(?P<imagingRound>[0-9]+)_(?P<fov>[0-9]+).nd2'
+oligoIF_regexp = r'([0-9\+_BGM]+)/(?P<imageType>Conv|Batch Denoise_000_Confocal)_(Hyb|hyb)(?P<imagingRound>[0-9]+)_(?P<fov>[0-9]+).nd2'
 
 _default_DO_cols = ["channelName", "readoutName", "imageType", 
                     "imageRegExp", "bitNumber", "imagingRound", 
@@ -384,7 +384,7 @@ class Data_Organization(pd.DataFrame):
         readout_names:list=[],
         file_regExp:str=_default_DO_fileRegExp,
         dataType_kwds:dict=color_usage_kwds,
-        zstep_size:float=0.5,        
+        zstep_size:float=0.6,        
         reorganized:bool=True, # whether subfolder is in format of H{hyb_id}R{round}
         verbose:bool=True,
     ):
@@ -495,17 +495,23 @@ class Data_Organization(pd.DataFrame):
             # now based on images, 
             test_fov = filemap['fov'].unique()[0]
             fov_filemap = filemap.loc[filemap['fov']==test_fov]
-            test_round = fov_filemap['imagingRound'].min()
-            full_test_filename = os.path.join(str(data_folder), fov_filemap.loc[fov_filemap['imagingRound']==test_round,'imagePath'].values[0])
+            ref_round = fov_filemap['imagingRound'].min()
+            full_ref_filename = os.path.join(str(data_folder), fov_filemap.loc[fov_filemap['imagingRound']==ref_round,'imagePath'].values[0])
             # load an example ND2:
-            _nd2_processer = Nd2Processer(full_test_filename)
-            _nd2_processer._load_image()            
+         
             # loop through merfish rows
             for _ii, _i in enumerate(np.argsort(_ids)):
                 _id, _channel, _hyb = _ids[_i], _channels[_i], _hybs[_i]
                 print("MERFISHbit", _i, f'bit-{_id}', _channel, _hyb)
-                #print(fov_filemap.loc[_hyb in fov_filemap['imagePath'].values])
-                
+                #print(_id, _channel, _hyb)
+                #print(fov_filemap.loc[fov_filemap['imagingRound']==_id, 'imagePath'].values[0])
+                # get the round of this ID:                
+                _round_filename = os.path.join(str(data_folder), 
+                    fov_filemap.loc[[_hyb in _n 
+                                     for _n in fov_filemap['imagePath']], 'imagePath'].values[0])
+                _nd2_processer = Nd2Processer(_round_filename)
+                _nd2_processer._load_metadata()  
+                #print(_nd2_processer.filename, _nd2_processer.channels)
                 _row = self._CreateRowSeriesND2(_id, _channel, _hyb, _ii+1, 
                                                 readout_names[_ii], _color_usage_df, 
                                                 fov_filemap, _nd2_processer=_nd2_processer)
@@ -520,7 +526,13 @@ class Data_Organization(pd.DataFrame):
             for _info, _channel, _hyb in zip(_other_infos, _other_channels, _other_hybs):
                 print("Other info:", _info, _channel, _hyb)
                 _readout = '' # skip readouts
-
+                
+                _round_filename = os.path.join(str(data_folder), 
+                    fov_filemap.loc[[_hyb in _n 
+                                     for _n in fov_filemap['imagePath']], 'imagePath'].values[0])
+                _nd2_processer = Nd2Processer(_round_filename)
+                _nd2_processer._load_metadata()  
+                print(_nd2_processer.filename, _nd2_processer.channels)
                 _row = self._CreateRowSeriesND2(_info, _channel, _hyb, len(self)+1, 
                                                 _readout,_color_usage_df, 
                                                 fov_filemap, _nd2_processer=_nd2_processer)

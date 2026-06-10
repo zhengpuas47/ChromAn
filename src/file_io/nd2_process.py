@@ -14,7 +14,7 @@ sys.path.append(os.path.dirname(SCRIPT_DIR))
 #from default_parameters import *
 from default_parameters import default_num_buffer_frames,default_num_empty_frames,default_channels,default_ref_channel,default_im_size,default_dapi_channel
 # usful functions
-from correction_tools.load_corrections import load_correction_profile
+#from correction_tools.load_corrections import load_correction_profile
 #from spot_tools.spot_class import Spots3D
 
 class Nd2Processer(ND2File):

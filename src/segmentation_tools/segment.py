@@ -94,8 +94,7 @@ class cellposeSegment():
         print(f"Use regExp: {_regExp}")
         # generate filemap:
         _filemap = generate_filemap(self.data_folder, _regExp)
-        _test_fov = _filemap['fov'].unique()[0]
-        _fov_filemap = _filemap.loc[_filemap['fov']==_test_fov]
+        _fov_filemap = _filemap.loc[_filemap['fov']==self.field_of_view]
         _ref_round = _fov_filemap['imagingRound'].min()
         _full_ref_name = os.path.join(
             self.data_folder, 
@@ -110,7 +109,7 @@ class cellposeSegment():
         # TODO add z_offsets info:
         # save a few parameters:
         #self.z_offsets = ref_daxp.get_z_offsets() 
-        self.stage_position = ref_daxp._FindGlobalPosition(ref_daxp.filename)
+        self.stage_position = ref_daxp._FindGlobalPosition()
         # init
         self.cyto_image, self.nuc_image = None, None
         # try to load if specified:
@@ -175,25 +174,26 @@ class cellposeSegment():
             self.nuc_z_offsets = _nuc_z_offsets
         # check if cyto and nuc images are loaded:
         if self.cyto_image is None:
-            raise Warning(f"Cyto image not found in {self.channels}.")
+            logging.warning(f"Cyto image not loaded.")
         if self.nuc_image is None:
-            raise Warning(f"Nuc image not found in {self.channels}.")
+            logging.warning(f"Nuc image not loaded.")
         # return
         return self.cyto_image, self.nuc_image
     
     def load_nd2_images(self):
         """Load image from confocal"""
+        logger = logging.getLogger("cellpose")
+        logger.info(f"Loading nd2 images for FOV: {self.field_of_view}")
         # load filemap:
         if self.file_regExp is None:
             # use default:
             _regExp = confocal_regexp
         else:
             _regExp = self.file_regExp
-        print(f"Use regExp: {_regExp}")
+        logger.info(f"Use regExp: {_regExp}")
         # generate filemap:
         _filemap = generate_filemap(self.data_folder, _regExp)
-        _test_fov = _filemap['fov'].unique()[0]
-        _fov_filemap = _filemap.loc[_filemap['fov']==_test_fov]
+        _fov_filemap = _filemap.loc[_filemap['fov']==self.field_of_view]
         _ref_round = _fov_filemap['imagingRound'].min()
         _full_ref_name = os.path.join(
             self.data_folder, 
@@ -206,15 +206,19 @@ class cellposeSegment():
         _ref_nd2._load_image()
         # load stage position:
         self.stage_position = _ref_nd2._FindGlobalPosition()
+        logger.info(f"Stage position: {self.stage_position}")
         # init
         self.cyto_image, self.nuc_image = None, None
         # try to load if specified:
         if self.cyto_channel is not None:
-            print(f"Loading cyto image for channel {self.cyto_channel}")
-            #print(_fov_filemap)
+            logger.info(f"Loading cyto image for channel {self.cyto_channel}")
             # example: 'NaK-ATPase'
             _cyto_info = self.color_usage.get_info(self.cyto_channel)[0]
-            _cyto_basename = _fov_filemap.loc[_fov_filemap['imagingRound']== self.color_usage.loc[_cyto_info['series'],'imagingRound'],'imagePath'].values[0]
+            #print(_fov_filemap)
+            #print(self.color_usage.loc[_cyto_info['series']])
+            _cyto_name = self.color_usage.loc[_cyto_info['series']].name
+            _cyto_basename = [_n for _n in _fov_filemap['imagePath'] if _cyto_name in _n][0]
+            #_cyto_basename = _fov_filemap.loc[_fov_filemap['imagingRound']== ,'imagePath'].values[0]
             _cyto_filename = os.path.join(
                 self.data_folder,
                 _cyto_basename,
@@ -239,10 +243,13 @@ class cellposeSegment():
         
         # do the same for nuclei:
         if self.nuc_channel is not None:
-            print(f"Loading nuc image for channel {self.nuc_channel}")
+            logger.info(f"Loading nuc image for channel {self.nuc_channel}")
             # example: 'DAPI'
             _nuc_info = self.color_usage.get_info(self.nuc_channel)[0]
-            _nuc_basename = _fov_filemap.loc[_fov_filemap['imagingRound']== self.color_usage.loc[_nuc_info['series'],'imagingRound'],'imagePath'].values[0]
+            _nuc_name = self.color_usage.loc[_nuc_info['series']].name
+            _nuc_basename = [_n for _n in _fov_filemap['imagePath'] if _nuc_name in _n][0]
+            
+            #_nuc_basename = _fov_filemap.loc[_fov_filemap['imagingRound']== self.color_usage.loc[_nuc_info['series'],'imagingRound'],'imagePath'].values[0]
             _nuc_filename = os.path.join(
                 self.data_folder,
                 _nuc_basename,
@@ -267,9 +274,9 @@ class cellposeSegment():
                                         
         # check if cyto and nuc images are loaded:
         if self.cyto_image is None:
-            raise Warning(f"Cyto image not found in {self.channels}.")
+            logger.warning(f"Cyto image not loaded.")
         if self.nuc_image is None:
-            raise Warning(f"Nuc image not found in {self.channels}.")
+            logger.warning(f"Nuc image not loaded.")
         # return
         return self.cyto_image, self.nuc_image            
             
@@ -281,6 +288,7 @@ class cellposeSegment():
         diameter: int = None,
         batch_size: int = 32,
         cellprob_threshold: float = -2,
+        flow_threshold: float = 0.4,
         downsample: float = 4.,
         do_3D: bool = True,
         min_size: int = 1000,
@@ -361,6 +369,7 @@ class cellposeSegment():
             batch_size=batch_size,
             diameter=effective_diameter,
             cellprob_threshold=cellprob_threshold,
+            flow_threshold=flow_threshold,
             do_3D=do_3D,
             min_size=min_size/downsample**2,
             flow3D_smooth=1,
@@ -388,6 +397,7 @@ class cellposeSegment():
         diameter: int = None,
         batch_size: int = 32,
         cellprob_threshold: float = -2,
+        flow_threshold: float = 0.4,
         downsample: float = 4.,
         do_3D: bool = True,
         min_size: int = 1000,
@@ -459,6 +469,7 @@ class cellposeSegment():
             batch_size=batch_size,
             diameter=effective_diameter,
             cellprob_threshold=cellprob_threshold,
+            flow_threshold=flow_threshold,
             do_3D=do_3D,
             min_size=min_size/downsample**2,
             flow3D_smooth=1,

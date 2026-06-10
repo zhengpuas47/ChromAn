@@ -1373,11 +1373,11 @@ class DaxProcesser():
             return _true_channels
         except:
             return None
-    @staticmethod
-    def _FindGlobalPosition(dax_filename:str,
+    
+    def _FindGlobalPosition(self, 
                             verbose=True) -> np.ndarray:
         """Function to find global coordinates in micron"""
-        _xml_filename = dax_filename.replace('.dax', '.xml') # xml file
+        _xml_filename = self.xml_filename
         try:
             _hal_info = ET.parse(_xml_filename).getroot()
             _position_micron = np.array(_hal_info.findall('acquisition/stage_position')[0].text.split(','), dtype=np.float64)
