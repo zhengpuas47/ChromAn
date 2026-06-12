@@ -131,6 +131,7 @@ def align_image(
     src_im:np.ndarray, 
     ref_im:np.ndarray, 
     crop_list=None,
+    bootstrap=True,
     use_autocorr:bool=True, 
     precision_fold:int=100, 
     min_good_drifts:int=3, 
@@ -221,76 +222,88 @@ def align_image(
         _crop_src_ims.append(_src_im[_s])
         _crop_ref_ims.append(_ref_im[_s])
     ## align two images
-    _drifts = []
-    for _i, (_sim, _rim) in enumerate(zip(_crop_src_ims, _crop_ref_ims)):
-        _start_time = time.time()
+    if bootstrap:
+        _drifts = []
+        for _i, (_sim, _rim) in enumerate(zip(_crop_src_ims, _crop_ref_ims)):
+            _start_time = time.time()
+            if use_autocorr:
+                if detailed_verbose:
+                    print("--- use auto correlation to calculate drift.")
+                # calculate drift with autocorr
+                _dft, _error, _phasediff = phase_cross_correlation(_rim, _sim, 
+                                                                upsample_factor=precision_fold)
+            else:
+                ## TODO: Fix this beads-based drift correction
+                if detailed_verbose:
+                    print("--- use beads fitting to calculate drift.")
+                # source
+                _src_spots = fit_fov_image(_sim, _fiducial_channel, 
+                    verbose=detailed_verbose,
+                    **_fitting_args) # fit source spots
+                _sp_src_cts = select_sparse_centers(_src_spots[:,1:4], match_distance_th) # select sparse source spots
+                # reference
+                _ref_spots = fit_fov_image(_rim, _fiducial_channel, 
+                    verbose=detailed_verbose,
+                    **_fitting_args)
+                _sp_ref_cts = select_sparse_centers(_ref_spots[:,1:4], match_distance_th, 
+                                                    verbose=detailed_verbose) # select sparse ref spots
+                #print(_sp_src_cts, _sp_ref_cts)
+                
+                # align
+                _dft, _paired_src_cts, _paired_ref_cts = align_beads(
+                    _sp_src_cts, _sp_ref_cts,
+                    _sim, _rim,
+                    use_fft=True,
+                    match_distance_th=match_distance_th, 
+                    return_paired_cts=True,
+                    verbose=detailed_verbose,
+                )
+                _dft = _dft * -1 # beads center is the opposite as cross correlation
+            # append 
+            _drifts.append(_dft) 
+            if verbose:
+                print(f"-- drift {_i}: {np.around(_dft, 2)} in {time.time()-_start_time:.3f}s.")
+
+            # detect variance within existing drifts
+            _mean_dft = np.nanmean(_drifts, axis=0)
+            if len(_drifts) >= min_good_drifts:
+                _dists = np.linalg.norm(_drifts-_mean_dft, axis=1)
+                _kept_drift_inds = np.where(_dists <= drift_diff_th)[0]
+                if len(_kept_drift_inds) >= min_good_drifts:
+                    _updated_mean_dft = np.nanmean(np.array(_drifts)[_kept_drift_inds], axis=0)
+                    _result_flag = 1
+                    if verbose:
+                        print(f"--- drifts for crops:{_kept_drift_inds} pass the thresold, exit cycle.")
+                    break
+        if '_updated_mean_dft' not in locals():
+            if verbose:
+                print(f"-- return a sub-optimal drift")
+            _drifts = np.array(_drifts)
+            # select top 3 drifts
+            from scipy.spatial.distance import pdist, squareform
+            _dist_mat = squareform(pdist(_drifts))
+            np.fill_diagonal(_dist_mat, np.inf)
+            # select closest pair
+            _sel_inds = np.array(np.unravel_index(np.argmin(_dist_mat), np.shape(_dist_mat)))
+            _sel_drifts = list(_drifts[_sel_inds])
+            # select closest 3rd drift
+            _sel_drifts.append(_drifts[np.argmin(_dist_mat[:, _sel_inds].sum(1))])
+            if detailed_verbose:
+                print(f"--- select drifts: {np.round(_sel_drifts, 2)}")
+            # return mean
+            _updated_mean_dft = np.nanmean(_sel_drifts, axis=0)
+            _result_flag = 0
+        
+    else:
+        # no bootstrap, directly calculate drift on whole image
         if use_autocorr:
             if detailed_verbose:
                 print("--- use auto correlation to calculate drift.")
             # calculate drift with autocorr
-            _dft, _error, _phasediff = phase_cross_correlation(_rim, _sim, 
-                                                               upsample_factor=precision_fold)
-        else:
-            ## TODO: Fix this beads-based drift correction
-            if detailed_verbose:
-                print("--- use beads fitting to calculate drift.")
-            # source
-            _src_spots = fit_fov_image(_sim, _fiducial_channel, 
-                verbose=detailed_verbose,
-                **_fitting_args) # fit source spots
-            _sp_src_cts = select_sparse_centers(_src_spots[:,1:4], match_distance_th) # select sparse source spots
-            # reference
-            _ref_spots = fit_fov_image(_rim, _fiducial_channel, 
-                verbose=detailed_verbose,
-                **_fitting_args)
-            _sp_ref_cts = select_sparse_centers(_ref_spots[:,1:4], match_distance_th, 
-                                                verbose=detailed_verbose) # select sparse ref spots
-            #print(_sp_src_cts, _sp_ref_cts)
-            
-            # align
-            _dft, _paired_src_cts, _paired_ref_cts = align_beads(
-                _sp_src_cts, _sp_ref_cts,
-                _sim, _rim,
-                use_fft=True,
-                match_distance_th=match_distance_th, 
-                return_paired_cts=True,
-                verbose=detailed_verbose,
-            )
-            _dft = _dft * -1 # beads center is the opposite as cross correlation
-        # append 
-        _drifts.append(_dft) 
-        if verbose:
-            print(f"-- drift {_i}: {np.around(_dft, 2)} in {time.time()-_start_time:.3f}s.")
+            _updated_mean_dft, _error, _phasediff = phase_cross_correlation(_ref_im, _src_im, 
+                                                                upsample_factor=precision_fold)
+            _result_flag = 1
+        
 
-        # detect variance within existing drifts
-        _mean_dft = np.nanmean(_drifts, axis=0)
-        if len(_drifts) >= min_good_drifts:
-            _dists = np.linalg.norm(_drifts-_mean_dft, axis=1)
-            _kept_drift_inds = np.where(_dists <= drift_diff_th)[0]
-            if len(_kept_drift_inds) >= min_good_drifts:
-                _updated_mean_dft = np.nanmean(np.array(_drifts)[_kept_drift_inds], axis=0)
-                _result_flag = 1
-                if verbose:
-                    print(f"--- drifts for crops:{_kept_drift_inds} pass the thresold, exit cycle.")
-                break
-    
-    if '_updated_mean_dft' not in locals():
-        if verbose:
-            print(f"-- return a sub-optimal drift")
-        _drifts = np.array(_drifts)
-        # select top 3 drifts
-        from scipy.spatial.distance import pdist, squareform
-        _dist_mat = squareform(pdist(_drifts))
-        np.fill_diagonal(_dist_mat, np.inf)
-        # select closest pair
-        _sel_inds = np.array(np.unravel_index(np.argmin(_dist_mat), np.shape(_dist_mat)))
-        _sel_drifts = list(_drifts[_sel_inds])
-        # select closest 3rd drift
-        _sel_drifts.append(_drifts[np.argmin(_dist_mat[:, _sel_inds].sum(1))])
-        if detailed_verbose:
-            print(f"--- select drifts: {np.round(_sel_drifts, 2)}")
-        # return mean
-        _updated_mean_dft = np.nanmean(_sel_drifts, axis=0)
-        _result_flag = 0
 
     return  _updated_mean_dft, _result_flag
