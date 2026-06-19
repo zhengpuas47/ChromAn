@@ -13,6 +13,8 @@ def analysis_input_parser():
     parser.add_argument('-i', '--hyb-id', type=int, 
                         default=-1,
                         help='the index of the hybridization round to analyze, -1 for all fovs')
+    parser.add_argument('-e' '--file-regexp', type=str, default=None,
+                        help='the regular expression to match the image files to analyze')
     parser.add_argument('-a', '--analysis-parameters', type=str, default='parameters.pkl',
                         help='name of the analysis parameters file to use')
     parser.add_argument('-s', '--save-folder', type=str, default=None,
