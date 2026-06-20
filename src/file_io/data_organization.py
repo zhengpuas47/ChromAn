@@ -331,17 +331,11 @@ class Data_Organization(pd.DataFrame):
         verbose:bool=True, 
         *args, **kwargs):
         """
-        Docstring for __init__
-        
-        :param self: Description
-        :param filename: Description
-        :type filename: str
-        :param style: Description
-        :type style: str
-        :param verbose: Description
-        :type verbose: bool
-        :param args: Description
-        :param kwargs: Description
+            Generate the data organization from a color usage file.
+            inputs:
+            filename: Path to the color usage file
+            file_style: Style of the input file (dax, nd2, tiff)
+            verbose: Whether to print verbose output
         """
 
         # load from file if exist
@@ -514,7 +508,7 @@ class Data_Organization(pd.DataFrame):
                 #print(_nd2_processer.filename, _nd2_processer.channels)
                 _row = self._CreateRowSeriesND2(_id, _channel, _hyb, _ii+1, 
                                                 readout_names[_ii], _color_usage_df, 
-                                                fov_filemap, _nd2_processer=_nd2_processer)
+                                                fov_filemap, _nd2_processer=_nd2_processer, _file_regExp=file_regExp)
                 # append
                 self.loc[len(self)] = _row
             # loop through other rows:
@@ -535,7 +529,7 @@ class Data_Organization(pd.DataFrame):
                 print(_nd2_processer.filename, _nd2_processer.channels)
                 _row = self._CreateRowSeriesND2(_info, _channel, _hyb, len(self)+1, 
                                                 _readout,_color_usage_df, 
-                                                fov_filemap, _nd2_processer=_nd2_processer)
+                                                fov_filemap, _nd2_processer=_nd2_processer, _file_regExp=file_regExp)
                 # append
                 self.loc[len(self)] = _row
         
