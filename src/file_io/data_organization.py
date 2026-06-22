@@ -379,6 +379,7 @@ class Data_Organization(pd.DataFrame):
         file_regExp:str=_default_DO_fileRegExp,
         dataType_kwds:dict=color_usage_kwds,
         zstep_size:float=0.6,        
+        subsample_fiducial_z:int=1,
         reorganized:bool=True, # whether subfolder is in format of H{hyb_id}R{round}
         verbose:bool=True,
     ):
@@ -508,7 +509,9 @@ class Data_Organization(pd.DataFrame):
                 #print(_nd2_processer.filename, _nd2_processer.channels)
                 _row = self._CreateRowSeriesND2(_id, _channel, _hyb, _ii+1, 
                                                 readout_names[_ii], _color_usage_df, 
-                                                fov_filemap, _nd2_processer=_nd2_processer, _file_regExp=file_regExp)
+                                                fov_filemap, _nd2_processer=_nd2_processer, 
+                                                _subsample_fiducial_z=subsample_fiducial_z,
+                                                _file_regExp=file_regExp)
                 # append
                 self.loc[len(self)] = _row
             # loop through other rows:
@@ -657,6 +660,7 @@ class Data_Organization(pd.DataFrame):
         _nd2_processer,
         _file_regExp=confocal_regexp,
         _columns=_default_DO_cols,
+        _subsample_fiducial_z=1,
     ):
         """Generate DataOrganization row series"""
         
@@ -684,7 +688,10 @@ class Data_Organization(pd.DataFrame):
         # fiducial channel:
         _fiducialColor = str(_color_usage_df.get_fiducial_channel(_color_usage_df))
         _fiducial_color_index = _nd2_processer.channel_indices[_nd2_processer.channels.index(_fiducialColor)]
-        _fiducialFrame = np.arange(_numZ*_fiducial_color_index, _numZ*(_fiducial_color_index+1) )
+        if _subsample_fiducial_z is None or _subsample_fiducial_z <= 1:
+            _fiducialFrame = np.arange(_numZ*_fiducial_color_index, _numZ*(_fiducial_color_index+1) )
+        else:
+            _fiducialFrame = np.arange(_numZ*_fiducial_color_index, _numZ*(_fiducial_color_index+1), int(_subsample_fiducial_z))
         _fiducialFrameStr = '['+' '.join([str(_f) for _f in _fiducialFrame])+']'
         # assemble:
         _row = pd.Series([

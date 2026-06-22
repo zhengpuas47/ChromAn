@@ -38,7 +38,7 @@ class GeneratePositions(AnalysisTask):
             # loop through files within this folder
             for _fov in _fovs:
                 daxp = DaxProcesser(os.path.join(reference_folder, _fov), verbose=False)
-                positions.append(daxp._FindGlobalPosition(daxp.filename))
+                positions.append(daxp._FindGlobalPosition())
         
         positions = np.array(positions)        
         if getattr(self, 'save_folder', None) is not None:
