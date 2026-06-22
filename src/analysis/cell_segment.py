@@ -3,22 +3,20 @@ import sys, os, h5py, time
 import cv2
 import logging
 # required to load parent
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.dirname(SCRIPT_DIR))
+#SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+#sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 # load image
-from analysis import AnalysisTask
+from . import AnalysisTask
 # Cellpose 
-from segmentation_tools.segment import cellposeSegment
- 
-
+from ..segmentation_tools.segment import cellposeSegment
 
 _default_segmentation_kwargs = {
     'min_size':1000,
     'do_3D': True,
     'cellprob_threshold': -3,
     'batch_size':24,
-    'downsample': 5,
+    'downsample': 4,
     'flow_threshold': 0.2,
 }
 #_default_correction_folder = r'/lab/weissman_imaging/puzheng/Corrections/20240401-Merscope01_s11_n1200'
@@ -26,7 +24,7 @@ _default_segmentation_kwargs = {
 
 _default_analysis_parameters = {
     'nuc_channel': 'DAPI',
-    'cyto_channel': 'PolyT',
+    'cyto_channel': 'NaK-ATPase',
     'segment_nuclei': False,
     'segment_cytoplasm': True,
     'watershed': False,
@@ -36,6 +34,7 @@ _default_analysis_parameters = {
     'report_watershed': False,
     'save_tiff': True,
     'save_masks': True,
+    'model_path': r'/lab/weissman_imaging/puzheng/Softwares/Weissman_MERFISH_Scripts/Subcellular_Analysis/cellpose_training/Hekcells/train/models/cp4_20260620_Hek2',
 }
     
 class CellSegmentTask(AnalysisTask):
@@ -66,7 +65,7 @@ class CellSegmentTask(AnalysisTask):
         # check fileExp:
         if not hasattr(self, 'file_regexp') or self.file_regexp is None:
             logger.info("No file regular expression provided, using default value None (all files).")
-            from file_io.data_organization import generate_filemap, dax_regexp, confocal_regexp
+            from ..file_io.data_organization import generate_filemap, dax_regexp, confocal_regexp
             # try to generate filemap see which one fit:
             if len(generate_filemap(self.data_folder, dax_regexp)) > 0:
                 self.file_regexp = dax_regexp
@@ -78,7 +77,7 @@ class CellSegmentTask(AnalysisTask):
                 raise ValueError("No file regular expression provided and failed to generate filemap with default regular expressions, please provide a valid regular expression for file matching.")
         else:
             # if the regexp is provided, check if it can generate filemap:
-            from file_io.data_organization import generate_filemap
+            from ..file_io.data_organization import generate_filemap
             if len(generate_filemap(self.data_folder, self.file_regexp)) == 0:
                 raise ValueError(f"Provided file regular expression {self.file_regexp} failed to generate filemap, please provide a valid regular expression for file matching.")
             logger.info(f"Using provided regular expression {self.file_regexp} for file matching.")
@@ -118,7 +117,7 @@ class CellSegmentTask(AnalysisTask):
         # assign channel names
         self.nuc_channel = self.analysis_parameters.get('nuc_channel', 'DAPI')
         self.cyto_channel = self.analysis_parameters.get('cyto_channel', None)
-        
+        self.model_path = self.analysis_parameters.get('model_path', None)
     
     def run(self):
         logger = logging.getLogger(__name__)
@@ -135,6 +134,7 @@ class CellSegmentTask(AnalysisTask):
             correction_folder=self.correction_folder,
             color_usage=self.color_usage,
             microscope_params=self.microscope_params,
+            model_path=self.model_path,
         )
         # load image:
         if self.correction_folder is None:
@@ -164,8 +164,9 @@ class CellSegmentTask(AnalysisTask):
                 cellprob_threshold=self.segmentation_kwargs.get('cellprob_threshold', -3),
                 flow_threshold=self.segmentation_kwargs.get('flow_threshold', 0.4),
                 batch_size=self.segmentation_kwargs.get('batch_size', 24),
-                downsample=self.segmentation_kwargs.get('downsample', 5),
+                downsample=self.segmentation_kwargs.get('downsample', 3),
                 clear_border=self.segmentation_kwargs.get('clear_border', False),
+                model_path=self.model_path,
             )
         else:
             logger.info("Skipping nuclei segmentation.")
@@ -180,6 +181,7 @@ class CellSegmentTask(AnalysisTask):
                 batch_size=self.segmentation_kwargs.get('batch_size', 24),
                 downsample=self.segmentation_kwargs.get('downsample', 5),
                 clear_border=self.segmentation_kwargs.get('clear_border', False),
+                model_path=self.model_path,
             )
         else:
             logger.info("Skipping cytoplasm segmentation.")

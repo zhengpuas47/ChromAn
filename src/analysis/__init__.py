@@ -1,5 +1,5 @@
 # required to load parent
-from analysis_input import analysis_input_parser,load_analyis_parameters,organization_input_parser
+from .analysis_input import analysis_input_parser,load_analyis_parameters,organization_input_parser
 
 class AnalysisTask():
     def __init__(self):

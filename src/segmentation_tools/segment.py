@@ -8,11 +8,11 @@ import fishtank as ft
 import geopandas as gpd
 from copy import copy
 # cellpose default:
-os.environ["CELLPOSE_LOCAL_MODELS_PATH"] = "/lab/weissman_imaging/puzheng/Softwares/"
+#os.environ["CELLPOSE_LOCAL_MODELS_PATH"] = "/lab/weissman_imaging/puzheng/Softwares/"
 
 # required to load parent
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.dirname(SCRIPT_DIR))
+#SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+#sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 from skimage.segmentation import watershed
 from skimage.transform import resize
@@ -20,9 +20,9 @@ from tifffile import imwrite
 
 # create a class to do cellpose segmentation:
 # import abstract class:
-from file_io.dax_process import DaxProcesser
-from file_io.data_organization import Color_Usage, find_zfill_number, generate_filemap, dax_regexp, confocal_regexp
-from file_io.nd2_process import Nd2Processer
+from ..file_io.dax_process import DaxProcesser
+from ..file_io.data_organization import Color_Usage, generate_filemap, dax_regexp, confocal_regexp
+from ..file_io.nd2_process import Nd2Processer
 class cellposeSegment():
     """Cellpose segmentation class.
     Parameters:
@@ -49,6 +49,7 @@ class cellposeSegment():
         nuc_channel: str = 'DAPI',
         cyto_channel: str = None,
         file_regExp: str = None,
+        model_path: str = None,
         correction_folder: str = None, 
         color_usage: str = None,
         microscope_params: str = None,
@@ -63,6 +64,7 @@ class cellposeSegment():
         self.cyto_channel = cyto_channel
         
         self.file_regExp = file_regExp
+        self.model_path = model_path
         self.correction_folder = correction_folder
         self.color_usage = color_usage
         # load color_usage:∂
@@ -284,12 +286,13 @@ class cellposeSegment():
         filter: str = None,
         filter_args: dict = None,
         gpu: bool = True,
+        model_path: str = None,
         channels: list = [0, 0],
         diameter: int = None,
         batch_size: int = 32,
         cellprob_threshold: float = -2,
         flow_threshold: float = 0.4,
-        downsample: float = 4.,
+        downsample: float = 3.,
         do_3D: bool = True,
         min_size: int = 1000,
         clear_border: bool = False,
@@ -351,8 +354,12 @@ class cellposeSegment():
             
         # run cellpose:
         logger.info(f"Running cellpose, GPU: {gpu}, diameter: {diameter}, cellprob_threshold: {cellprob_threshold}")
-        _model = models.CellposeModel(gpu=gpu)
-        
+        if model_path is not None:
+            logger.info(f"Loading pretrained model from {model_path}")
+            _model = models.CellposeModel(gpu=gpu, pretrained_model=model_path)
+        else:
+            logger.info("Using default model.")
+            _model = models.CellposeModel(gpu=gpu)
         zstep = self.nuc_z_offsets[1] - self.nuc_z_offsets[0] # um
         pixel_size = self.microscope_params['microns_per_pixel'] # um
         # check if diameter is None:
@@ -392,13 +399,14 @@ class cellposeSegment():
     def segment_cytoplasm(self,
         filter: str = None,
         filter_args: dict = None,
+        model_path: str = None,
         gpu: bool = True,
         channels: list = [0, 0],
         diameter: int = None,
         batch_size: int = 32,
         cellprob_threshold: float = -2,
         flow_threshold: float = 0.4,
-        downsample: float = 4.,
+        downsample: float = 3.,
         do_3D: bool = True,
         min_size: int = 1000,
         clear_border: bool = False,
@@ -451,8 +459,11 @@ class cellposeSegment():
             
         # run cellpose:
         logger.info(f"Running cellpose, GPU: {gpu}, diameter: {diameter}, cellprob_threshold: {cellprob_threshold}")
-        _model = models.CellposeModel(gpu=gpu)
-        
+        if model_path is not None:
+            logger.info(f"Loading pretrained model from {model_path}")
+            _model = models.CellposeModel(gpu=gpu, pretrained_model=model_path)
+        else:
+            _model = models.CellposeModel(gpu=gpu)
         zstep = self.nuc_z_offsets[1] - self.nuc_z_offsets[0] # um
         pixel_size = 0.107 # um
         # check if diameter is None:

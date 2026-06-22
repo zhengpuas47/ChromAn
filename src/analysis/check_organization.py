@@ -1,14 +1,13 @@
 import sys, os
 # required to load parent
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.dirname(SCRIPT_DIR))
+#SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+#sys.path.append(os.path.dirname(SCRIPT_DIR))
 
-# load image
-from file_io.dax_process import DaxProcesser
-from file_io.data_organization import search_fovs_in_folders, Color_Usage
-from analysis import AnalysisTask
-from default_parameters import default_correction_folder
-
+# relative import
+from ..file_io.dax_process import DaxProcesser
+from ..file_io.data_organization import search_fovs_in_folders, Color_Usage
+from . import AnalysisTask
+from ..default_parameters import default_correction_folder
 class CheckOrganizationTask(AnalysisTask):
     """Step 1 analysis: check existence of all dax files listed in the color_usage file.
     1. Load the first dax file as reference.
