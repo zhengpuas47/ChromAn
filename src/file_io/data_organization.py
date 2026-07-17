@@ -65,7 +65,7 @@ def generate_filemap(data_folder:Path,
 
     for file_path in data_folder.rglob('*'):
         # re match
-        relative_pathname = str(file_path).split(str(data_folder))[1].lstrip('/')
+        relative_pathname = str(file_path.relative_to(data_folder))
         match = re.match(regexp, relative_pathname)
 
         if file_path.is_file() and match:
